@@ -5567,9 +5567,14 @@
   }/*FIM_ATLAS*/;
   let art = null;
   const iconURL = {};
+  // Imagem grande vira ImageBitmap: fica decodificada de vez. Desenhando direto da <img>, o Chrome do celular descarta
+  // e decodifica de novo as imagens grandes (atlas de 4096 px) a cada poucos segundos, e o jogo trava por quase 1 s.
+  function fixarImagem(img, pronto) {
+    if (window.createImageBitmap) createImageBitmap(img).then(bm => pronto(bm), () => pronto(img)); else pronto(img);
+  }
   (function loadArt() {
     const img = new Image();
-    img.onload = () => { art = img; buildIconURLs(); invDirty = true; };
+    img.onload = () => fixarImagem(img, im => { art = im; buildIconURLs(); invDirty = true; });
     // se a pasta assets não foi enviada, tenta o arquivo solto na raiz do site
     // nome com versão: cada atualização das imagens usa um arquivo novo (evita misturar com o antigo e o cache)
     img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['atlas-v75.webp'][n]; if (alt) img.src = alt; };
@@ -5781,14 +5786,14 @@
   let artChao = null;
   (function loadChao() {
     const img = new Image();
-    img.onload = () => { artChao = img; if (typeof chunkCache !== 'undefined') chunkCache.clear(); trilhaCv = null; };
+    img.onload = () => fixarImagem(img, im => { artChao = im; chunkCache.clear(); trilhaCv = null; });
     img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['chao-v1.webp'][n]; if (alt) img.src = alt; };
     img.src = 'assets/chao-v1.webp';
   })();
   let art2 = null;
   (function loadArt2() {
     const img = new Image();
-    img.onload = () => { art2 = img; thumbCache.clear(); invDirty = true; };
+    img.onload = () => fixarImagem(img, im => { art2 = im; thumbCache.clear(); invDirty = true; });
     img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['estruturas-v4.webp'][n]; if (alt) img.src = alt; };
     img.src = window.TERRA_ATLAS2 || 'assets/estruturas-v4.webp';
   })();
@@ -8964,7 +8969,9 @@
       e.y = e.wy >= fe - 0.05 ? Math.max(e.y, v.key + 0.5) : Math.min(e.y, v.key - 0.5);
     }
     ents.sort((e1, e2) => e1.y - e2.y);   // ordena só depois dos ajustes acima
+    if (DIAG) DIAG.m1 = performance.now();
     for (const e of ents) e.f();
+    if (DIAG) DIAG.m2 = performance.now();
     drawSmoke(camX, camY, now);
     if (z === 0) for (const zn of MUNDO.zonas) {   // borda da área segura no chão
       if (!zn.ativo || Math.hypot(zn.x - p.x, zn.y - p.y) > zn.r + 20) continue;
@@ -8986,6 +8993,7 @@
     }
 
     // luz: noite na superfície, escuridão nas camadas de baixo
+    if (DIAG) DIAG.m3 = performance.now();
     let alpha, tint;
     if (z === 0) { alpha = clamp(-sun() * 0.95 + 0.12, 0, 0.78); tint = '10,14,34'; }
     else { alpha = z === 1 ? 0.8 : z <= 3 ? 0.88 : 0.94; tint = '6,4,3'; }
@@ -9021,6 +9029,7 @@
       ctx.imageSmoothingQuality = 'low'; ctx.drawImage(lightCv, 0, 0, W2, H2); ctx.imageSmoothingQuality = GRAF.alta ? 'high' : 'medium';
     }
 
+    if (DIAG) DIAG.m4 = performance.now();
     // nomes dos compradores e setas (por cima da escuridão, para serem achados à noite)
     if (z === 0) {
       for (const n of S.npcs) {
@@ -9140,6 +9149,7 @@
     const a = performance.now(); update(dt, now); const b = performance.now(); render(now); const c = performance.now();
     DIAG.n++; DIAG.up += b - a; DIAG.rd += c - b; DIAG.pior = Math.max(DIAG.pior, passo);
     DIAG.upMax = Math.max(DIAG.upMax, b - a); DIAG.rdMax = Math.max(DIAG.rdMax, c - b);
+    if (DIAG.m1 > b && DIAG.m4 > DIAG.m1) { DIAG.chao = (DIAG.chao || 0) + DIAG.m1 - b; DIAG.obj = (DIAG.obj || 0) + DIAG.m2 - DIAG.m1; DIAG.luz = (DIAG.luz || 0) + DIAG.m4 - DIAG.m3; DIAG.resto = (DIAG.resto || 0) + (c - DIAG.m4) + (DIAG.m3 - DIAG.m2); }
     if (passo > 100 && document.visibilityState === 'visible') DIAG.eng.push([c, Math.round(passo), Math.round(b - a), Math.round(c - b)]);   // engasgo: quadro demorou
     if (c - DIAG.t0 > 1000) {
       DIAG.eng = DIAG.eng.filter(e => c - e[0] < 60000); DIAG.longas = DIAG.longas.filter(e => c - e[0] < 60000);
@@ -9148,7 +9158,8 @@
         + ` · engasgos/min ${DIAG.eng.length}${ult ? ` (últ ${ult[1]}ms há ${Math.round((c - ult[0]) / 1000)}s)` : ''}`
         + (ult ? ` · no engasgo: lóg ${ult[2]} des ${ult[3]} ms` : '')
         + ` · tarefas longas/min ${DIAG.longas.length}${DIAG.longas.length ? ` (maior ${Math.max(...DIAG.longas.map(e => e[1]))}ms)` : ''} · memória ${mem} · sprites ${escCache.size}`;
-      DIAG.txt += ` · tela ${canvas.width}×${canvas.height} · redimensionou ${redims}× · pedaços ${chunkCache.size} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
+      DIAG.txt += ` · partes: chão ${(DIAG.chao / DIAG.n).toFixed(1)} objetos ${(DIAG.obj / DIAG.n).toFixed(1)} luz ${(DIAG.luz / DIAG.n).toFixed(1)} resto ${(DIAG.resto / DIAG.n).toFixed(1)}`; DIAG.chao = DIAG.obj = DIAG.luz = DIAG.resto = 0;
+      DIAG.txt += ` · gráficos ${GRAF.alta ? 'alta' : GRAF.eco ? 'econômico' : 'leve'} · tela ${canvas.width}×${canvas.height} · redimensionou ${redims}× · pedaços ${chunkCache.size} · atlas ${art ? art.width + '×' + art.height + (art instanceof HTMLImageElement ? ' img' : ' fixo') : '—'}`;
       DIAG.upMax = 0; DIAG.rdMax = 0;
       DIAG.n = 0; DIAG.up = 0; DIAG.rd = 0; DIAG.pior = 0; DIAG.t0 = c;
     }
