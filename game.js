@@ -6515,39 +6515,56 @@
     const agora = performance.now();
     if (forcar || miniBaseDe !== S || agora - miniBaseEm > 20000) { rebuildMiniBase(); miniBaseEm = agora; miniBaseDe = S; }
   }
-  // tudo o que vai por cima do chão: terrenos, bases, porto, jogadores, marcas. k = pixels por bloco
-  function desenharCamadas(c, k, ox, oy, cheio) {
-    const px = x => (x - ox) * k, py = y => (y - oy) * k, esp = Math.max(1, k * (cheio ? 0.9 : 0.8));
+  // tudo o que vai por cima do chão: terrenos, bases, porto, jogadores, marcas. k = pixels por bloco, f = escala dos textos
+  function rotulo(c, txt, x, y, cor, f) {
+    c.font = `600 ${Math.round(13 * f)}px "Pixelify Sans", monospace`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const tw = c.measureText(txt).width, h = 18 * f;
+    c.fillStyle = 'rgba(20,17,15,0.82)'; c.fillRect(x - tw / 2 - 5 * f, y - h / 2, tw + 10 * f, h);
+    c.fillStyle = cor; c.fillText(txt, x, y + f);
+  }
+  function desenharCamadas(c, k, ox, oy, cheio, f = 1) {
+    const px = x => (x - ox) * k, py = y => (y - oy) * k, esp = cheio ? Math.max(1.5 * f, Math.min(4 * f, k * 0.35)) : Math.max(1, k * 0.8);
     if (modoClas) {
-      for (const b of TER.bases) {
-        const cor = (b.tag && CLA.cores[b.tag]) || b.cor || '#c0392b', L = (2 * BASE_R + 1) * k;
-        c.strokeStyle = cor; c.lineWidth = esp * 1.4; c.strokeRect(px(b.x - BASE_R), py(b.y - BASE_R), L, L);
-        c.fillStyle = cor; c.globalAlpha = 0.16; c.fillRect(px(b.x - BASE_R), py(b.y - BASE_R), L, L); c.globalAlpha = 1;
-        if (cheio && b.tag) { c.font = '600 15px "Pixelify Sans", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillStyle = '#14110f'; c.fillText(`[${b.tag}]`, px(b.x) + 1, py(b.y - BASE_R) - 1); c.fillStyle = cor; c.fillText(`[${b.tag}]`, px(b.x), py(b.y - BASE_R) - 2); }
+      for (const b of TER.bases) {   // bases de clã: área pintada na cor do clã, borda e nome com o tamanho
+        const cor = (b.tag && CLA.cores[b.tag]) || b.cor || '#c0392b', L = (2 * BASE_R + 1) * k, x0 = px(b.x - BASE_R), y0 = py(b.y - BASE_R);
+        c.fillStyle = cor; c.globalAlpha = 0.22; c.fillRect(x0, y0, L, L); c.globalAlpha = 1;
+        c.strokeStyle = cor; c.lineWidth = esp * 1.6; c.strokeRect(x0, y0, L, L);
+        if (cheio) {
+          c.fillStyle = cor; c.strokeStyle = '#14110f'; c.lineWidth = 1.5 * f;   // a bandeira no centro
+          c.fillRect(px(b.x + 0.5) - 1 * f, py(b.y + 0.5) - 12 * f, 2 * f, 12 * f);
+          c.beginPath(); c.moveTo(px(b.x + 0.5) + f, py(b.y + 0.5) - 12 * f); c.lineTo(px(b.x + 0.5) + 10 * f, py(b.y + 0.5) - 8 * f); c.lineTo(px(b.x + 0.5) + f, py(b.y + 0.5) - 4 * f); c.closePath(); c.fill(); c.stroke();
+          const nome = `[${b.tag || '?'}]${L > 120 * f && b.nome ? ' ' + b.nome : ''} · base ${2 * BASE_R + 1}×${2 * BASE_R + 1}`;
+          rotulo(c, nome, x0 + L / 2, y0 - 12 * f, cor, f);
+        }
       }
-      for (const t of TER.terrenos) {
-        const L = (2 * TERRENO_R + 1) * k;
-        c.strokeStyle = t.meu ? '#f1c40f' : t.pode ? '#2ecc71' : 'rgba(244,239,230,0.75)'; c.lineWidth = esp * (t.meu ? 1.6 : 1);
-        c.strokeRect(px(t.x - TERRENO_R), py(t.y - TERRENO_R), L, L);
+      for (const t of TER.terrenos) {   // terrenos: só a borda (dourado o seu, verde de amigo)
+        const L = (2 * TERRENO_R + 1) * k, x0 = px(t.x - TERRENO_R), y0 = py(t.y - TERRENO_R), cor = t.meu ? '#f1c40f' : t.pode ? '#2ecc71' : '#f4efe6';
+        if (t.meu) { c.fillStyle = cor; c.globalAlpha = 0.14; c.fillRect(x0, y0, L, L); c.globalAlpha = 1; }
+        c.strokeStyle = cor; c.lineWidth = esp * (t.meu ? 1.4 : 1); c.setLineDash(t.meu ? [] : [4 * f, 3 * f]); c.strokeRect(x0, y0, L, L); c.setLineDash([]);
+        if (cheio && L > 40 * f) rotulo(c, `${t.meu ? 'Seu terreno' : t.nome}${L > 110 * f ? ` · ${2 * TERRENO_R + 1}×${2 * TERRENO_R + 1}` : ''}`, x0 + L / 2, y0 - 11 * f, cor, f * 0.9);
       }
     }
-    if (S.porto) { c.fillStyle = '#5fb3ff'; c.strokeStyle = '#14110f'; c.lineWidth = 1; const r = Math.max(3, k * 2); c.fillRect(px(S.porto.x + 2) - r / 2, py(S.porto.y + 1) - r / 2, r, r); c.strokeRect(px(S.porto.x + 2) - r / 2, py(S.porto.y + 1) - r / 2, r, r); }
+    if (S.porto) {
+      const r = cheio ? 7 * f : Math.max(3, k * 2), x = px(S.porto.x + 2.5), y = py(S.porto.y + 1.5);
+      c.fillStyle = '#5fb3ff'; c.strokeStyle = '#14110f'; c.lineWidth = cheio ? 1.5 * f : 1; c.fillRect(x - r / 2, y - r / 2, r, r); c.strokeRect(x - r / 2, y - r / 2, r, r);
+      if (cheio && k > 2 * f) rotulo(c, 'Porto', x, y - 16 * f, '#9fd4ff', f * 0.9);
+    }
     if (modoClas) for (const r of REMOTOS.values()) {
       if (r.x == null) continue;
-      const rr = cheio ? 6 : 3.2;
-      c.fillStyle = r.tc || '#7fd0ff'; c.strokeStyle = '#14110f'; c.lineWidth = 1.5;
+      const rr = cheio ? 5 * f : 3.2;
+      c.fillStyle = r.tc || '#ff9f1c'; c.strokeStyle = '#ffffff'; c.lineWidth = cheio ? 1.5 * f : 1.5;
       c.beginPath(); c.arc(px(r.x), py(r.y), rr, 0, 6.28); c.fill(); c.stroke();
-      if (cheio) { c.font = '600 14px "Pixelify Sans", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom'; const nome = (r.tag ? `[${r.tag}] ` : '') + (r.nome || '?'), tw = c.measureText(nome).width; c.fillStyle = 'rgba(20,17,15,0.75)'; c.fillRect(px(r.x) - tw / 2 - 4, py(r.y) - rr - 20, tw + 8, 18); c.fillStyle = '#f4eadb'; c.fillText(nome, px(r.x), py(r.y) - rr - 4); }
+      if (cheio) rotulo(c, (r.tag ? `[${r.tag}] ` : '') + (r.nome || '?'), px(r.x), py(r.y) - rr - 11 * f, '#f4eadb', f * 0.9);
     }
     marcas.forEach((m, n) => {
-      const x = px(m.x + 0.5), y = py(m.y + 0.5), r = cheio ? 9 : 5;
-      c.fillStyle = '#ff5a5a'; c.strokeStyle = '#14110f'; c.lineWidth = 1.5;
+      const x = px(m.x + 0.5), y = py(m.y + 0.5), r = cheio ? 8 * f : 5;
+      c.fillStyle = '#ff5a5a'; c.strokeStyle = '#14110f'; c.lineWidth = cheio ? 1.5 * f : 1.5;
       c.beginPath(); c.moveTo(x, y); c.lineTo(x - r * 0.75, y - r * 1.5); c.arc(x, y - r * 2, r, Math.PI * 0.8, Math.PI * 0.2); c.closePath(); c.fill(); c.stroke();
-      c.fillStyle = '#fff'; c.font = `600 ${cheio ? 12 : 8}px "Pixelify Sans", monospace`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(n + 1), x, y - r * 2 + 1);
+      c.fillStyle = '#fff'; c.font = `600 ${Math.round(cheio ? 11 * f : 8)}px "Pixelify Sans", monospace`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(n + 1), x, y - r * 2 + 1);
     });
     // você (com a direção)
-    const ex = px(S.p.x), ey = py(S.p.y), er = cheio ? 7 : 4.5, [dx, dy] = DIRS[S.p.dir] || [0, 1];
-    c.fillStyle = '#ffffff'; c.strokeStyle = '#14110f'; c.lineWidth = 2;
+    const ex = px(S.p.x), ey = py(S.p.y), er = cheio ? 6 * f : 4.5, [dx, dy] = DIRS[S.p.dir] || [0, 1];
+    c.fillStyle = '#ffffff'; c.strokeStyle = '#14110f'; c.lineWidth = cheio ? 2 * f : 2;
     c.beginPath(); c.arc(ex, ey, er, 0, 6.28); c.fill(); c.stroke();
     c.fillStyle = '#14110f'; c.beginPath(); c.arc(ex + dx * er * 0.45, ey + dy * er * 0.45, er * 0.35, 0, 6.28); c.fill();
   }
@@ -6559,8 +6576,7 @@
     c.imageSmoothingEnabled = false;
     c.fillStyle = '#123b66'; c.fillRect(0, 0, N, N);
     c.drawImage(miniBase, ox, oy, MINI_VISTA, MINI_VISTA, 0, 0, N, N);
-    // linha até a marca mais perto
-    let alvo = null, dmin = Infinity;
+    let alvo = null, dmin = Infinity;   // linha até a marca mais perto
     for (const m of marcas) { const d = Math.hypot(m.x + 0.5 - S.p.x, m.y + 0.5 - S.p.y); if (d < dmin) { dmin = d; alvo = m; } }
     if (alvo && dmin > 2) {
       c.save(); c.setLineDash([7, 5]); c.lineWidth = 3; c.strokeStyle = 'rgba(20,17,15,0.7)';
@@ -6573,29 +6589,88 @@
     c.fillText(alvo ? `▼${marcas.indexOf(alvo) + 1}  ${Math.round(dmin)} m` : 'Mapa', N / 2, N - 16);
   }
   setInterval(() => { if (!document.hidden && !(openSheet && openSheet.id === 'sheet-mapa')) desenharMini(); }, 300);
+  // mapa inteiro com zoom: dois dedos (ou a roda do mouse) aproximam, um dedo arrasta, um toque marca
+  const VISTA = { cx: W / 2, cy: H / 2, z: 0 };   // z = pixels de tela por bloco (0 = mapa todo)
+  const mapaMinZ = () => { const cv = $('mapa'); return Math.max(0.2, Math.min(cv.clientWidth / W, cv.clientHeight / H)); };
+  function mapaLimitar() {
+    const cv = $('mapa'), zmin = mapaMinZ();
+    VISTA.z = clamp(VISTA.z || zmin, zmin, 14);
+    const mw = cv.clientWidth / VISTA.z / 2, mh = cv.clientHeight / VISTA.z / 2;
+    VISTA.cx = mw * 2 >= W ? W / 2 : clamp(VISTA.cx, mw, W - mw);
+    VISTA.cy = mh * 2 >= H ? H / 2 : clamp(VISTA.cy, mh, H - mh);
+  }
   function desenharMapa() {
     const cv = $('mapa');
-    if (!cv || !S) return;
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    const c = cv.getContext('2d');
+    if (!cv || !S || !cv.clientWidth) return;
+    const f = Math.min(3, window.devicePixelRatio || 1), cw = Math.round(cv.clientWidth * f), ch = Math.round(cv.clientHeight * f);
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    mapaLimitar();
+    const k = VISTA.z * f, ox = VISTA.cx - cw / k / 2, oy = VISTA.cy - ch / k / 2, c = cv.getContext('2d');
     c.imageSmoothingEnabled = false;
-    c.drawImage(miniBase, 0, 0);
-    desenharCamadas(c, 1, 0, 0, true);
+    c.fillStyle = '#123b66'; c.fillRect(0, 0, cw, ch);
+    c.drawImage(miniBase, -ox * k, -oy * k, W * k, H * k);
+    if (k >= 6 * f) {   // bem perto: grade dos blocos
+      c.strokeStyle = 'rgba(20,17,15,0.12)'; c.lineWidth = 1; c.beginPath();
+      for (let x = Math.ceil(ox); x < ox + cw / k; x++) { c.moveTo((x - ox) * k, 0); c.lineTo((x - ox) * k, ch); }
+      for (let y = Math.ceil(oy); y < oy + ch / k; y++) { c.moveTo(0, (y - oy) * k); c.lineTo(cw, (y - oy) * k); }
+      c.stroke();
+    }
+    desenharCamadas(c, k, ox, oy, true, f);
+    $('mapa-zoom').textContent = `${Math.round(VISTA.z / mapaMinZ() * 10) / 10}×`;
   }
-  function abrirMapa() { miniBasePronta(true); showSheet('sheet-mapa'); desenharMapa(); }
+  function mapaZoom(fator, sx, sy) {   // sx, sy: ponto da tela (em px do canvas na tela) que fica parado
+    const cv = $('mapa'), z0 = VISTA.z || mapaMinZ();
+    if (sx == null) { sx = cv.clientWidth / 2; sy = cv.clientHeight / 2; }
+    const wx = VISTA.cx + (sx - cv.clientWidth / 2) / z0, wy = VISTA.cy + (sy - cv.clientHeight / 2) / z0;
+    VISTA.z = clamp(z0 * fator, mapaMinZ(), 14);
+    VISTA.cx = wx - (sx - cv.clientWidth / 2) / VISTA.z; VISTA.cy = wy - (sy - cv.clientHeight / 2) / VISTA.z;
+    desenharMapa();
+  }
+  function abrirMapa() { miniBasePronta(true); showSheet('sheet-mapa'); requestAnimationFrame(() => { if (!VISTA.z) { VISTA.cx = S.p.x; VISTA.cy = S.p.y; } desenharMapa(); }); }
   setInterval(() => { if (openSheet && openSheet.id === 'sheet-mapa') desenharMapa(); }, 500);
-  function tocarMapa(e) {
-    const cv = $('mapa'), rect = cv.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width * W, y = (e.clientY - rect.top) / rect.height * H, pxPorBloco = rect.width / W;
-    const perto = marcas.findIndex(m => Math.hypot(m.x + 0.5 - x, m.y + 0.5 - y) * pxPorBloco < 22);
+  function tocarMapa(sx, sy) {
+    const cv = $('mapa'), z = VISTA.z;
+    const x = VISTA.cx + (sx - cv.clientWidth / 2) / z, y = VISTA.cy + (sy - cv.clientHeight / 2) / z;
+    const perto = marcas.findIndex(m => Math.hypot(m.x + 0.5 - x, m.y + 0.5 - (y + 8 / z)) * z < 24);   // o alfinete fica acima do ponto
     if (perto >= 0) { marcas.splice(perto, 1); toast('Marca tirada'); }
     else if (marcas.length >= MARCAS_MAX) { toast(`Até ${MARCAS_MAX} marcas: toque numa para tirar`, 'warn'); return; }
     else if (x < 0 || y < 0 || x >= W || y >= H) return;
     else { marcas.push({ x: Math.floor(x), y: Math.floor(y) }); toast(`Marca ${marcas.length} posta: a ${Math.round(Math.hypot(x - S.p.x, y - S.p.y))} blocos`, 'leaf'); }
     salvarMarcas(); desenharMapa();
   }
+  {
+    const cv = $('mapa'), dedos = new Map();
+    let arrastou = false, pinca = null;
+    const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    let inicio = null;
+    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); dedos.set(e.pointerId, pos(e)); if (dedos.size === 1) { arrastou = false; inicio = pos(e); } if (dedos.size === 2) { const [a, b] = [...dedos.values()]; pinca = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: VISTA.z }; arrastou = true; } });
+    cv.addEventListener('pointermove', e => {
+      if (!dedos.has(e.pointerId)) return;
+      const ant = dedos.get(e.pointerId), agora = pos(e); dedos.set(e.pointerId, agora);
+      if (dedos.size >= 2 && pinca) {
+        const [a, b] = [...dedos.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinca.d > 10) mapaZoom((pinca.z * d / pinca.d) / VISTA.z, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        return;
+      }
+      if (!arrastou && inicio && Math.hypot(agora[0] - inicio[0], agora[1] - inicio[1]) > 8) arrastou = true;
+      if (!arrastou) return;
+      VISTA.cx -= (agora[0] - ant[0]) / VISTA.z; VISTA.cy -= (agora[1] - ant[1]) / VISTA.z;
+      desenharMapa();
+    });
+    const soltar = e => {
+      if (!dedos.has(e.pointerId)) return;
+      const p = dedos.get(e.pointerId); dedos.delete(e.pointerId);
+      if (dedos.size < 2) pinca = null;
+      if (!dedos.size && !arrastou && e.type === 'pointerup') tocarMapa(p[0], p[1]);
+    };
+    cv.addEventListener('pointerup', soltar); cv.addEventListener('pointercancel', soltar);
+    cv.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = pos(e); mapaZoom(e.deltaY < 0 ? 1.25 : 0.8, x, y); }, { passive: false });
+  }
   $('mini').addEventListener('click', abrirMapa);
-  $('mapa').addEventListener('click', tocarMapa);
+  $('mapa-mais').addEventListener('click', () => mapaZoom(1.6));
+  $('mapa-menos').addEventListener('click', () => mapaZoom(1 / 1.6));
+  $('mapa-eu').addEventListener('click', () => { VISTA.cx = S.p.x; VISTA.cy = S.p.y; if (VISTA.z < mapaMinZ() * 3) VISTA.z = mapaMinZ() * 4; desenharMapa(); });
+  $('mapa-todo').addEventListener('click', () => { VISTA.z = mapaMinZ(); desenharMapa(); });
   $('mapa-limpar').addEventListener('click', () => { if (!marcas.length) return; marcas = []; salvarMarcas(); desenharMapa(); toast('Marcas tiradas'); });
 
   // ================= Administrador =================

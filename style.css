@@ -49,8 +49,11 @@ html, body {
 .hud-right > * { pointer-events: auto; }
 #mini { width: 112px; height: 112px; border: 2px solid var(--line); border-radius: 8px; background: #123b66; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
 .panel-mapa { max-width: 980px; }
-.mapa-wrap { border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #123b66; }
-.mapa-wrap canvas { display: block; width: 100%; height: auto; touch-action: manipulation; cursor: crosshair; }
+.mapa-wrap { position: relative; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #123b66; }
+.mapa-wrap canvas { display: block; width: 100%; aspect-ratio: 3 / 2; max-height: 62vh; touch-action: none; cursor: crosshair; }
+.mapa-botoes { position: absolute; right: 6px; top: 6px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.mapa-botoes .btn { min-width: 40px; padding: 6px 8px; }
+.mapa-zoom { text-align: center; font-size: 12px; color: #f4eadb; background: rgba(20,17,15,0.75); border-radius: 4px; padding: 2px 4px; }
 .mapa-legenda { margin: 8px 0 0; line-height: 1.6; }
 
 .chip {
