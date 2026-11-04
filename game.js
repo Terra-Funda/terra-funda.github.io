@@ -7458,14 +7458,24 @@
 
   // ================= Tela =================
   let dpr = 1, vw = 0, vh = 0, tp = 48;
+  // Só refaz o que mudou: no celular a barra do navegador aparece e some e dispara vários "resize" seguidos;
+  // refazer tudo (e apagar os pedaços de chão já desenhados) a cada um deles deixava o jogo travando
+  let redims = 0, tamAnt = '', cssAnt = 0;
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, GRAF.alta ? 2 : 1.5);
-    vw = canvas.clientWidth; vh = canvas.clientHeight;
+    const ndpr = Math.min(window.devicePixelRatio || 1, GRAF.alta ? 2 : 1.5), nvw = canvas.clientWidth, nvh = canvas.clientHeight;
+    const chave = ndpr + ':' + nvw + ':' + nvh;
+    if (chave === tamAnt) return;
+    tamAnt = chave; redims++;
+    const dprMudou = ndpr !== dpr;
+    dpr = ndpr; vw = nvw; vh = nvh;
     canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
     lightCv.width = Math.ceil(canvas.width / 4); lightCv.height = Math.ceil(canvas.height / 4);   // a luz é suave: meia resolução basta
-    chunkCache.clear();
-    const css = clamp(Math.round(Math.min(vw, vh) / 11), 30, 56);
-    tp = Math.max(16, Math.round(css * dpr / 4) * 4);   // tamanho do bloco em pixels do aparelho
+    let css = clamp(Math.round(Math.min(vw, vh) / 11), 30, 56);
+    if (cssAnt && !dprMudou && Math.abs(css - cssAnt) <= 4) css = cssAnt;   // a barra do navegador mexendo não muda o zoom
+    cssAnt = css;
+    const ntp = Math.max(16, Math.round(css * dpr / 4) * 4);   // tamanho do bloco em pixels do aparelho
+    if (ntp !== tp || dprMudou) chunkCache.clear();
+    tp = ntp;
   }
   window.addEventListener('resize', resize);
 
@@ -9126,7 +9136,7 @@
     const a = performance.now(); update(dt, now); const b = performance.now(); render(now); const c = performance.now();
     DIAG.n++; DIAG.up += b - a; DIAG.rd += c - b; DIAG.pior = Math.max(DIAG.pior, passo);
     if (c - DIAG.t0 > 1000) {
-      DIAG.txt = `${Math.round(DIAG.n * 1000 / (c - DIAG.t0))} fps · lógica ${(DIAG.up / DIAG.n).toFixed(1)} ms · desenho ${(DIAG.rd / DIAG.n).toFixed(1)} ms · pior ${Math.round(DIAG.pior)} ms · tela ${canvas.width}×${canvas.height} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
+      DIAG.txt = `${Math.round(DIAG.n * 1000 / (c - DIAG.t0))} fps · lógica ${(DIAG.up / DIAG.n).toFixed(1)} ms · desenho ${(DIAG.rd / DIAG.n).toFixed(1)} ms · pior ${Math.round(DIAG.pior)} ms · tela ${canvas.width}×${canvas.height} · redimensionou ${redims}× · pedaços ${chunkCache.size} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
       DIAG.n = 0; DIAG.up = 0; DIAG.rd = 0; DIAG.pior = 0; DIAG.t0 = c;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.textAlign = 'left';
