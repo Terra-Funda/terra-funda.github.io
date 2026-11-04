@@ -7438,6 +7438,16 @@
       }
       const tcs = e.target.closest('[data-tconserta]');
       if (tcs) { const o = TER.obras.get(tcs.dataset.tconserta); tcs.disabled = true; if (o) consertarObra(o).then(() => renderBuild()); return; }
+      const tcp = e.target.closest('[data-tcomprar]');
+      if (tcp) { tcp.disabled = true; terrenoComprar().finally(() => { tcp.disabled = false; }); return; }
+      const tab = e.target.closest('[data-tabandona]');
+      if (tab) { terrenoAbandonar(+tab.dataset.tabandona); return; }
+      const tma = e.target.closest('[data-tamigo-add]');
+      if (tma) { terrenoAmigo(+tma.dataset.tamigoAdd, ($('t-amigo') || {}).value, true); return; }
+      const tmd = e.target.closest('[data-tamigo-del]');
+      if (tmd) { const [tid, cod] = tmd.dataset.tamigoDel.split(':'); terrenoAmigo(+tid, cod, false); return; }
+      const tac = e.target.closest('[data-tacesso]');
+      if (tac) { const b = S.builds.find(q => q.obra === tac.dataset.tacesso); if (b) { b.acesso = b.acesso === 'todos' ? 'so_eu' : 'todos'; toast(`Entrada: ${ACESSO[b.acesso]}`); terrasSalvarCasa(b); } renderBuild(); return; }
       const tob = e.target.closest('[data-tobra]');
       if (tob) { tob.disabled = true; terrasRemoverObra(tob.dataset.tobra).then(() => renderBuild()); return; }
       const bp = e.target.closest('[data-bpick]') || e.target.closest('[data-bsell]');
@@ -8052,7 +8062,7 @@
     if (!(S.kit[S.sel.id] > 0) && !(modoClas && BUILDS[S.sel.id] && BUILDS[S.sel.id].custo)) return;
     const d = BUILDS[S.sel.id];
     if (d.tipo === 'robo') return;
-    const c = candidate(S.sel.id), bad = placeProblem(c) || (modoClas ? terrasProblema(c.x, c.y, d.w, d.h) : null);
+    const c = candidate(S.sel.id), bad = placeProblem(c) || (modoClas ? terrasProblema(c.x, c.y, d.w, d.h, S.sel.id) : null);
     if (d.tipo === 'clabandeira') { desenharEstandarte((c.x + 0.5) * tp - camX, (c.y + 0.85) * tp - camY, CLA.dados ? CLA.dados.cor : '#c0392b', CLA.dados ? CLA.dados.brasao : 'escudo', 0.5, performance.now()); }
     const show = { k: d.tipo === 'forte' && d.arte ? d.arte : c.k, x: c.x, y: c.y, flip: !!S.sel.flip, rot: S.sel.rot || 0 };
     if (d.tipo === 'forte') { drawBuild(show, d.img + '_fundo', camX, camY, 0.5); drawBuild(show, d.img + '_frente', camX, camY, 0.5); }
@@ -8195,6 +8205,7 @@
   }
   function leaveHouse() {
     const b = interior; if (!b) return;
+    if (b.obra) terrasSalvarCasa(b);
     const d = BUILDS[b.k], [qx, qy] = doorPoint(b), cx = b.x + d.w / 2, cy = b.y + d.h / 2;
     let ux = qx - cx, uy = qy - cy; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
     interior = null;
@@ -9590,7 +9601,7 @@
   // A sua terra continua salva como sempre; moedas, mochila, skins e armas vão junto na viagem.
   // Lá ainda não dá para coletar nem construir (recursos vêm do Mercado); os outros jogadores aparecem ao vivo.
   const SEED_CLAS = 777001;
-  const LEVA = ['inv', 'coins', 'owned', 'tool', 'char', 'skins', 'skin', 'skinCor', 'hp', 'wxp', 'wbless', 'dur', 'broken', 'playMs', 'aura', 'hints', 'catalog', 'presentes', 'time'];
+  const LEVA = ['inv', 'coins', 'kit', 'owned', 'tool', 'char', 'skins', 'skin', 'skinCor', 'hp', 'wxp', 'wbless', 'dur', 'broken', 'playMs', 'aura', 'hints', 'catalog', 'presentes', 'time'];
   let modoClas = false, S_casa = null, mundoClas = null, viajando = false;
   // porto: lagoinha 5×3 com o barco, num gramado livre perto do começo do mapa (o mesmo lugar sempre)
   function acharPorto(s) {
@@ -9816,19 +9827,35 @@
   // Tudo o que se derruba ou constrói vai para o servidor (supabase/terras.sql) e avisa quem está lá pelo canal ao vivo.
   // O que foi derrubado volta sozinho: na metade do tempo vira muda, no fim volta a árvore (ou a pedra).
   const BASE_R = 15;   // a base vai até 15 blocos da bandeira para cada lado (31 × 31)
-  const TER = { terreno: new Map(), bases: [], obras: new Map(), obraEm: new Map(), orig: null, origAux: null, desvio: 0, carregando: false, golpes: [], mortes: [], hostCod: null, hostVisto: 0, meusRobos: [], tx: null };
+  const TER = { terreno: new Map(), bases: [], obras: new Map(), obraEm: new Map(), orig: null, origAux: null, desvio: 0, carregando: false, golpes: [], mortes: [], hostCod: null, hostVisto: 0, meusRobos: [], tx: null, terrenos: [] };
   const terrasCfg = () => Object.assign({ regen: 2, rend: 0 }, MUNDO.terras || {});
   const CICLO_TERRAS = 30 * 60000;
   const chaveXY = (x, y) => y * W + x;
   const meuClaId = () => (CLA.dados ? CLA.dados.id : null);
   const minhaBase = () => (CLA.dados ? TER.bases.find(b => b.cla === CLA.dados.id) : null);
-  function terrasProblema(x, y, w, h) {
+  // terrenos dos jogadores: 35 × 35 (17 blocos do centro para cada lado), até 3 por jogador; amigos do dono também constroem
+  const TERRENO_R = 17, TERRENO_PRECO = 5000, TERRENO_MAX = 3;
+  const KIT_TERRENO = new Set(['casa', 'movel', 'torre', 'armadilha']);
+  const terrenoEm = (x, y) => TER.terrenos.find(t => Math.abs(x - t.x) <= TERRENO_R && Math.abs(y - t.y) <= TERRENO_R);
+  const meusTerrenos = () => TER.terrenos.filter(t => t.meu);
+  // pode remover/girar: quem construiu, o dono do terreno ou alguém do clã (o servidor confere o cargo)
+  const podeMexer = o => !!o && (o.dono === myId() || (o.ter != null && TER.terrenos.some(t => t.id === o.ter && t.meu)) || (o.cla != null && o.cla === meuClaId()));
+  const ehDoCla = k => !!k && /^cla_/.test(k);
+  function terrasProblema(x, y, w, h, k) {
     if (!online()) return 'Construir nas Terras precisa da conta ligada';
-    if (!CLA.dados) return 'Entre em um clã para construir nas Terras (Menu → Clã)';
-    const b = minhaBase();
-    if (!b) return CLA.dados.papel === 'membro' ? 'Seu clã ainda não tem base: peça ao líder para marcar' : 'Seu clã ainda não tem base: Menu → Clã → Marcar a base aqui';
-    if (x < b.x - BASE_R || y < b.y - BASE_R || x + w - 1 > b.x + BASE_R || y + h - 1 > b.y + BASE_R) return 'Construa dentro da base do seu clã (a linha na cor do clã)';
-    if (x <= b.x && x + w - 1 >= b.x && y <= b.y && y + h - 1 >= b.y) return 'A bandeira da base fica aí';
+    const ter = terrenoEm(x, y), kit = k && BUILDS[k] && !BUILDS[k].custo;
+    if (ter) {
+      if (!ter.pode) return `Esse terreno é de ${ter.nome}`;
+      if (ehDoCla(k)) return 'Peças do clã só na base do clã';
+      if (x < ter.x - TERRENO_R || y < ter.y - TERRENO_R || x + w - 1 > ter.x + TERRENO_R || y + h - 1 > ter.y + TERRENO_R) return 'Passa da borda do terreno';
+    } else {
+      if (kit) return 'Casas, móveis e torres vão no seu terreno (Construir → Comprar terreno aqui)';
+      if (!CLA.dados) return 'Construa no seu terreno: Construir → Comprar terreno aqui';
+      const b = minhaBase();
+      if (!b) return CLA.dados.papel === 'membro' ? 'Construa no seu terreno (Construir → Comprar terreno) ou peça ao líder para marcar a base' : 'Construa no seu terreno ou marque a base do clã (Menu → Clã)';
+      if (x < b.x - BASE_R || y < b.y - BASE_R || x + w - 1 > b.x + BASE_R || y + h - 1 > b.y + BASE_R) return 'Construa no seu terreno ou dentro da base do seu clã';
+      if (x <= b.x && x + w - 1 >= b.x && y <= b.y && y + h - 1 >= b.y) return 'A bandeira da base fica aí';
+    }
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
       const t = S.tiles[I(xx, yy, 0)];
       if (t === T.TREE || t === T.SAPLING || t === T.ROCK) return 'Derrube as árvores e pedras antes';
@@ -9841,6 +9868,7 @@
     const ob = TER.obras.get(TER.obraEm.get(chaveXY(x, y)));
     if (ob || t === T.WALL || t === T.GATE) {
       if (!ob) { actHeld = false; swing = 0; return; }
+      if (ob.cla == null) { actHeld = false; swing = 0; toast(podeMexer(ob) ? 'Para tirar, use Construir → Remover' : 'Construções de terreno não podem ser derrubadas', 'warn', 3000); return; }
       if (ob.cla === meuClaId()) { actHeld = false; swing = 0; toast('É do seu clã: para tirar, use Construir → Remover', 'warn', 3000); return; }
       golpearObra(ob, tool); return;
     }
@@ -9890,6 +9918,7 @@
       TER.bases = (e.bases || []).filter(b => b && isFinite(b.x) && isFinite(b.y) && b.x >= 0 && b.y >= 0 && b.x < W && b.y < H);
       for (const b of TER.bases) if (corOk(b.cor) && typeof b.tag === 'string') CLA.cores[b.tag] = b.cor;
       TER.tx = e.tx || null;
+      TER.terrenos = (e.terrenos || []).filter(t => t && isFinite(t.x) && isFinite(t.y)).map(t => ({ id: t.id, x: t.x | 0, y: t.y | 0, nome: String(t.nome || '?'), meu: !!t.meu, pode: !!t.pode, amigos: Array.isArray(t.amigos) ? t.amigos : [] }));
       terrasObras(e.obras || []);
       terrasRegen();
     } catch (err) { /* sem rede: tenta de novo depois */ } finally { TER.carregando = false; }
@@ -9901,7 +9930,10 @@
     const novas = new Map();
     for (const o of lista) if (o && o.id != null && typeof o.k === 'string' && isFinite(o.x) && isFinite(o.y) && o.x > 0 && o.y > 0 && o.x < W - 3 && o.y < H - 3) novas.set(String(o.id), o);
     for (const [id, o] of TER.obras) if (!novas.has(id)) obraTirar(o);
-    for (const [id, o] of novas) { const v = TER.obras.get(id); if (!v || v.rot !== o.rot || v.k !== o.k) { if (v) obraTirar(v); obraPor(o); } }
+    for (const [id, o] of novas) {
+      const v = TER.obras.get(id), dadosMudou = v && /^kit:/.test(o.k) && JSON.stringify(v.dados || null) !== JSON.stringify(o.dados || null) && !(interior && interior.obra === id);
+      if (!v || v.rot !== o.rot || v.k !== o.k || dadosMudou) { if (v) obraTirar(v); obraPor(o); }
+    }
     TER.obras = novas;
     for (const o of novas.values()) { o.max = o.max || o.hp; if (o.hp != null) marcarDano(o); }
     for (const b of S.builds) if (b.obra) { const base = TER.bases.find(q => q.cla === b.cla); if (base) { b.cor = base.cor; b.brasao = base.brasao; } }
@@ -9915,6 +9947,17 @@
     } else if (BUILDS[o.k] && BUILDS[o.k].custo) {
       const d = BUILDS[o.k];
       S.builds.push({ k: o.k, x: o.x, y: o.y, rot: (o.rot | 0) & 3, obra: id, cla: o.cla, cor: base ? base.cor : '#c0392b', brasao: base ? base.brasao : 'escudo' });
+      for (let yy = o.y; yy < o.y + d.h; yy++) for (let xx = o.x; xx < o.x + d.w; xx++) {
+        const i = I(xx, yy, 0), t = S.tiles[i];
+        if (t === T.TREE || t === T.SAPLING || t === T.ROCK) { S.tiles[i] = T.GRASS; S.aux[chaveXY(xx, yy)] = 0; }
+        TER.obraEm.set(chaveXY(xx, yy), id);
+      }
+    } else if (/^kit:/.test(o.k) && BUILDS[o.k.slice(4)] && !BUILDS[o.k.slice(4)].custo) {   // casa, móvel ou torre de um terreno
+      const k = o.k.slice(4), d = BUILDS[k], dd = o.dados && typeof o.dados === 'object' ? o.dados : {};
+      const b = { k, x: o.x, y: o.y, obra: id, ter: o.ter, dono: o.dono || '?', acesso: dd.acesso === 'todos' ? 'todos' : 'so_eu' };
+      if (d.gira) b.rot = (o.rot | 0) & 3;
+      if (dd.room && Array.isArray(dd.room.itens)) b.room = { piso: PISOS[dd.room.piso] ? dd.room.piso : 'madeira', parede: PAREDES[dd.room.parede] ? dd.room.parede : 'creme', itens: dd.room.itens.filter(it => it && BUILDS[it.k]).slice(0, 400) };
+      S.builds.push(b);
       for (let yy = o.y; yy < o.y + d.h; yy++) for (let xx = o.x; xx < o.x + d.w; xx++) {
         const i = I(xx, yy, 0), t = S.tiles[i];
         if (t === T.TREE || t === T.SAPLING || t === T.ROCK) { S.tiles[i] = T.GRASS; S.aux[chaveXY(xx, yy)] = 0; }
@@ -9941,7 +9984,7 @@
     if (isWallT(t)) {
       actHeld = false;
       const o = TER.obras.get(TER.obraEm.get(chaveXY(x, y)));
-      if (o && o.cla === meuClaId() && o.hp < o.max) { consertarObra(o); return; }   // muro do clã que apanhou: conserta
+      if (o && o.cla != null && o.cla === meuClaId() && o.hp < o.max) { consertarObra(o); return; }   // muro do clã que apanhou: conserta
       toast('Já tem muro aí. Para trocar, remova antes (Construir → Remover).', 'warn'); return;
     }
     if (!(t === T.GRASS || t === T.TILLED)) { if (t === T.TREE || t === T.SAPLING || t === T.ROCK) toast('Derrube as árvores e pedras antes', 'warn'); return; }
@@ -9954,8 +9997,8 @@
     S.tiles[i] = gate ? T.GATE : T.WALL; S.wmat[i] = m; hits.delete(i); sfx('construir');
     TER.obraEm.set(chave, '?'); invDirty = true;
     try {
-      const id = String(await NET.terrasConstruir(k, x, y, 0));
-      TER.obras.set(id, { id, cla: meuClaId(), k, x, y, rot: 0 }); TER.obraEm.set(chave, id);
+      const ter = terrenoEm(x, y), id = String(await NET.terrasConstruir2(k, x, y, 0));
+      TER.obras.set(id, { id, cla: ter ? null : meuClaId(), ter: ter ? ter.id : null, dono: myId(), k, x, y, rot: 0 }); TER.obraEm.set(chave, id);
       NET.terrasEnviar('o', {});
     } catch (e) {
       if (TER.obraEm.get(chave) === '?') { TER.obraEm.delete(chave); if (isWallT(S.tiles[i])) { S.tiles[i] = T.GRASS; S.wmat[i] = 0; } }
@@ -9967,7 +10010,7 @@
     if (mode === 'mover') { toast('Nas Terras não dá para mover: remova e coloque de novo', 'warn'); return; }
     if (!isWallT(t)) { toast('Fique de frente para um muro', 'warn'); return; }
     const id = TER.obraEm.get(chaveXY(x, y)), o = id && TER.obras.get(id);
-    if (!o || o.cla !== meuClaId()) { toast('Esse muro não é do seu clã', 'warn'); return; }
+    if (!podeMexer(o)) { toast(o && o.cla == null ? 'Esse muro não é seu' : 'Esse muro não é do seu clã', 'warn'); return; }
     if (mode === 'remover') {
       try { await NET.terrasRemover(+id); } catch (e) { toast(e.message, 'warn', 3500); return; }
       obraTirar(o); TER.obras.delete(id);
@@ -9984,50 +10027,142 @@
     }
     invDirty = true;
   }
-  // torre e estandarte do clã
+  // torre e estandarte do clã (base) · casas, móveis e torres da loja (terreno)
   async function terrasColocar(k) {
     const d = BUILDS[k];
     actHeld = false;
-    if (!d || !d.custo) { toast('Nas Terras dos Clãs só dá para construir muros, portões e as peças do clã', 'warn', 3500); return; }
+    if (d && !d.custo) { terrasKit(k); return; }
+    if (!d) return;
     const c = candidate(k); c.rot = S.sel.rot || 0;
-    const prob = placeProblem(c) || terrasProblema(c.x, c.y, d.w, d.h);
+    const prob = placeProblem(c) || terrasProblema(c.x, c.y, d.w, d.h, k);
     if (prob) { toast(prob, 'warn', 3500); cooldown = 0.5; return; }
     if (!payAll(d.custo)) { toast(`Precisa de ${costTxt(d.custo)}`, 'warn'); cooldown = 0.5; return; }
     cooldown = 1; invDirty = true;
     try {
-      const id = String(await NET.terrasConstruir(k, c.x, c.y, c.rot));
-      const o = { id, cla: meuClaId(), k, x: c.x, y: c.y, rot: c.rot };
+      const id = String(await NET.terrasConstruir2(k, c.x, c.y, c.rot));
+      const o = { id, cla: meuClaId(), k, x: c.x, y: c.y, rot: c.rot, dono: myId() };
       TER.obras.set(id, o); obraPor(o); sfx('construir'); toast(`${d.nome}: pronta`, 'gold');
       NET.terrasEnviar('o', {});
     } catch (e) { giveAll(d.custo); invDirty = true; toast(e.message, 'warn', 3500); }
+  }
+  async function terrasKit(k) {
+    const d = BUILDS[k];
+    if (!KIT_TERRENO.has(d.tipo) || d.junto) { toast(`${d.nome} ainda não pode ser colocado nas Terras`, 'warn', 3500); return; }
+    if (!(S.kit[k] > 0)) { toast(`Você não tem ${d.nome.toLowerCase()}. Compre na loja.`, 'warn'); return; }
+    const c = candidate(k); c.rot = d.gira ? (S.sel.rot || 0) : 0;
+    const prob = placeProblem(c) || terrasProblema(c.x, c.y, d.w, d.h, k);
+    if (prob) { toast(prob, 'warn', 3500); cooldown = 0.5; return; }
+    const ter = terrenoEm(c.x, c.y);
+    S.kit[k]--; cooldown = 1; invDirty = true;
+    try {
+      const id = String(await NET.terrasConstruir2('kit:' + k, c.x, c.y, c.rot, d.w, d.h));
+      const o = { id, cla: null, ter: ter.id, k: 'kit:' + k, x: c.x, y: c.y, rot: c.rot, dono: myId(), dados: null };
+      TER.obras.set(id, o); obraPor(o); sfx('construir'); toast(`${d.nome}: pronto`, 'gold');
+      if (d.tipo === 'casa') hint('casa', 'Chegue perto da porta e toque em Entrar. Lá dentro, toque em Decorar.');
+      NET.terrasEnviar('o', {});
+    } catch (e) { S.kit[k] = (S.kit[k] || 0) + 1; toast(e.message, 'warn', 3500); }
+    if (!(S.kit[k] > 0)) S.sel = { k: 'nada' };
+    invDirty = true; save();
+  }
+  // o que volta para quem remove: material dos muros e peças do clã, o kit (e os móveis de dentro) das casas
+  function terrasDevolver(o) {
+    const m = /^(muro|portao):(\d)$/.exec(o.k);
+    if (m) { const back = wallCost(+m[2], m[1] === 'portao'); giveAll(back); return costTxt(back); }
+    if (/^kit:/.test(o.k)) {
+      const k = o.k.slice(4), b = S.builds.find(q => q.obra === String(o.id));
+      S.kit[k] = (S.kit[k] || 0) + 1; let n = 0;
+      if (b && b.room) for (const it of b.room.itens) { S.kit[it.k] = (S.kit[it.k] || 0) + 1; n++; }
+      return `${BUILDS[k].nome}${n ? ` e ${n} ${n > 1 ? 'móveis' : 'móvel'}` : ''} de volta em Construir`;
+    }
+    const d = BUILDS[o.k];
+    if (d && d.custo) { giveAll(d.custo); return costTxt(d.custo); }
+    return '';
   }
   async function terrasRemoverObra(id) {
     const o = TER.obras.get(id);
     if (!o) return;
     try { await NET.terrasRemover(+id); } catch (e) { toast(e.message, 'warn', 3500); return; }
+    const txt = terrasDevolver(o);
     obraTirar(o); TER.obras.delete(id);
-    const d = BUILDS[o.k];
-    if (d && d.custo) { giveAll(d.custo); toast(`${d.nome} removida: ${costTxt(d.custo)} de volta`); }
-    sfx('desaba'); NET.terrasEnviar('o', {}); invDirty = true;
+    toast(`Removido${txt ? ': ' + txt : ''}`, 'leaf', 3500);
+    sfx('desaba'); NET.terrasEnviar('o', {}); invDirty = true; save();
+  }
+  // casa de terreno: guarda a decoração e quem entra no servidor (todos veem igual)
+  function terrasSalvarCasa(b) {
+    if (!modoClas || !b || !b.obra || b.dono !== myId() || !NET.terrasObraDados) return;
+    const dados = { acesso: b.acesso === 'todos' ? 'todos' : 'so_eu', room: b.room || null }, o = TER.obras.get(b.obra);
+    if (o) o.dados = JSON.parse(JSON.stringify(dados));
+    NET.terrasObraDados(+b.obra, dados).then(() => NET.terrasEnviar('o', {}), e => toast(e.message, 'warn', 3500));
+  }
+  async function terrenoComprar() {
+    const x = Math.floor(S.p.x), y = Math.floor(S.p.y);
+    if (!online()) { toast('Comprar terreno precisa da conta ligada', 'warn'); return; }
+    if (S.p.z !== 0 || interior) { toast('Fique na superfície, do lado de fora', 'warn'); return; }
+    if (meusTerrenos().length >= TERRENO_MAX) { toast(`Você já tem ${TERRENO_MAX} terrenos`, 'warn'); return; }
+    if (S.porto && Math.hypot(x - S.porto.x, y - S.porto.y) < TERRENO_R + 8) { toast('Muito perto do porto: ande um pouco mais', 'warn'); return; }
+    if (S.coins < TERRENO_PRECO) { toast(`Um terreno custa ${TERRENO_PRECO.toLocaleString('pt-BR')} moedas`, 'warn'); return; }
+    try { await NET.terrenoComprar(x, y); } catch (e) { toast(e.message, 'warn', 4000); return; }
+    S.coins -= TERRENO_PRECO; sfx('moeda'); invDirty = true; save(true);
+    toast('Terreno comprado! A linha dourada mostra até onde vai. Construa à vontade.', 'gold', 5000);
+    NET.terrasEnviar('o', {}); await terrasCarregar(); renderBuild();
+  }
+  let abandonoArmado = null;
+  async function terrenoAbandonar(id) {
+    const t = TER.terrenos.find(q => q.id === id && q.meu);
+    if (!t) return;
+    if (abandonoArmado !== id) { abandonoArmado = id; setTimeout(() => { abandonoArmado = null; }, 6000); toast('Toque de novo em Abandonar para confirmar. As moedas não voltam; o que você construiu volta para você.', 'warn', 5000); return; }
+    abandonoArmado = null;
+    try { await NET.terrenoAbandonar(id); } catch (e) { toast(e.message, 'warn', 4000); return; }
+    for (const [oid, o] of TER.obras) if (o.ter === id) { if (o.dono === myId()) terrasDevolver(o); obraTirar(o); TER.obras.delete(oid); }
+    toast('Terreno abandonado', 'leaf'); invDirty = true; save(true);
+    NET.terrasEnviar('o', {}); await terrasCarregar(); renderBuild();
+  }
+  async function terrenoAmigo(id, codigo, add) {
+    codigo = String(codigo || '').trim().toUpperCase();
+    if (!/^TF-[A-Z0-9]{4,10}$/.test(codigo)) { toast('Digite o código do amigo (TF-…)', 'warn'); return; }
+    try { const nome = await NET.terrenoAmigo(id, codigo, add); toast(add ? `${nome} agora constrói no seu terreno` : `${nome} não constrói mais no seu terreno`, 'leaf', 3500); }
+    catch (e) { toast(e.message, 'warn', 3500); return; }
+    await terrasCarregar(); renderBuild();
   }
   // tela Construir nas Terras
   function terrasBuildHtml(row, cur, pick) {
-    const b = minhaBase(), E = chatEsc;
-    let h = '<div class="section-label">Base do clã</div>';
+    const b = minhaBase(), E = chatEsc, aqui = terrenoEm(Math.floor(S.p.x), Math.floor(S.p.y)), meus = meusTerrenos();
+    let h = '<div class="section-label">Terreno</div>';
+    if (!online()) h += '<div class="empty">Comprar e construir nas Terras precisa da conta ligada (no site do jogo).</div>';
+    else if (aqui && aqui.meu) {
+      h += `<p class="muted small-text">Você está no <b>seu terreno</b> (35 × 35, a linha dourada). Aqui você coloca casas, móveis, torres, muros e portões. Ninguém consegue derrubar.</p>`;
+      h += '<div class="section-label">Amigos que constroem aqui</div><div class="list">';
+      if (!aqui.amigos.length) h += '<div class="empty">Nenhum amigo ainda.</div>';
+      for (const a of aqui.amigos) h += row('', E(a.nome || '?'), E(a.codigo || ''), `<button type="button" class="btn btn-danger" data-tamigo-del="${aqui.id}:${E(a.codigo || '')}">Tirar</button>`);
+      h += `</div><div class="field"><input id="t-amigo" maxlength="12" placeholder="Código do amigo (TF-…)" autocomplete="off"></div><div class="list-actions"><button type="button" class="btn btn-gold" data-tamigo-add="${aqui.id}">Adicionar amigo</button><button type="button" class="btn btn-danger" data-tabandona="${aqui.id}">Abandonar terreno</button></div>`;
+    } else if (aqui) h += `<p class="muted small-text">Terreno de <b>${E(aqui.nome)}</b>.${aqui.pode ? ' Você é amigo do dono: pode construir aqui.' : ' Só o dono e os amigos dele constroem aqui.'}</p>`;
+    else {
+      h += `<p class="muted small-text">Cada jogador pode ter até ${TERRENO_MAX} terrenos de 35 × 35 blocos, com você no meio. Custa ${TERRENO_PRECO.toLocaleString('pt-BR')} moedas. Você tem ${meus.length} de ${TERRENO_MAX}.</p>`;
+      h += `<div class="list-actions"><button type="button" class="btn btn-gold" data-tcomprar="1"${meus.length >= TERRENO_MAX ? ' disabled' : ''}>Comprar terreno aqui · ${TERRENO_PRECO.toLocaleString('pt-BR')} moedas</button></div>`;
+    }
+    if (meus.length && !(aqui && aqui.meu)) h += `<p class="muted small-text">Seus terrenos: ${meus.map(t => `a ${Math.round(Math.hypot(t.x - S.p.x, t.y - S.p.y))} blocos`).join(' · ')}.</p>`;
+    const kits = Object.entries(S.kit || {}).filter(([k, n]) => n > 0 && BUILDS[k] && KIT_TERRENO.has(BUILDS[k].tipo) && !BUILDS[k].junto);
+    if (kits.length) {
+      h += '<div class="section-label">Suas construções · para o terreno</div><div class="list">';
+      for (const [k, n] of kits) { const d = BUILDS[k]; h += row(d.img ? thumb2(d.img) : '', `${d.nome}${n > 1 ? ' × ' + n : ''}`, `${d.w} × ${d.h} blocos`, pick('kit:' + k, cur('kit', 0, k))); }
+      h += '</div>';
+    }
+    h += '<div class="section-label">Base do clã</div>';
     if (!online()) h += '<div class="empty">Construir nas Terras precisa da conta ligada (no site do jogo).</div>';
-    else if (!CLA.dados) h += '<div class="empty">Entre em um clã (Menu → Clã) para construir aqui.</div>';
+    else if (!CLA.dados) h += '<div class="empty">Entre em um clã (Menu → Clã) para ter uma base com torres e robôs.</div>';
     else if (!b) h += `<div class="empty">Seu clã ainda não tem base. ${CLA.dados.papel !== 'membro' ? 'Vá até o lugar que quiser e toque em Menu → Clã → Marcar a base aqui.' : 'Peça ao líder ou a um oficial para marcar.'}</div>`;
     else {
       const dentro = Math.abs(S.p.x - b.x - 0.5) <= BASE_R + 0.5 && Math.abs(S.p.y - b.y - 0.5) <= BASE_R + 0.5;
       h += `<p class="muted small-text">Base [${E(CLA.dados.tag)}]: até ${BASE_R} blocos da bandeira para cada lado (a linha na cor do clã). Você está <b>${dentro ? 'dentro' : 'fora'}</b> da base${dentro ? '' : ` (a bandeira fica a ${Math.round(Math.hypot(S.p.x - b.x, S.p.y - b.y))} blocos)`}. Árvores e pedras precisam ser derrubadas antes.</p>`;
     }
-    const perto = S.builds.filter(q => q.obra && q.cla === meuClaId()).map(q => ({ q, dist: Math.hypot(q.x + BUILDS[q.k].w / 2 - S.p.x, q.y + BUILDS[q.k].h / 2 - S.p.y) }))
+    const perto = S.builds.filter(q => q.obra && podeMexer(TER.obras.get(q.obra))).map(q => ({ q, dist: Math.hypot(q.x + BUILDS[q.k].w / 2 - S.p.x, q.y + BUILDS[q.k].h / 2 - S.p.y) }))
       .filter(o => o.dist < 40).sort((a, c) => a.dist - c.dist).slice(0, 20);
     if (perto.length) {
-      h += '<div class="section-label">Peças do clã por perto</div><div class="list">';
+      h += '<div class="section-label">Suas construções por perto</div><div class="list">';
       for (const { q, dist } of perto) { const d = BUILDS[q.k];
         const dano = q.max && q.hp < q.max;
-        h += row(d.gira ? thumb2(imgDe(q)) : '', d.nome, `a ${Math.round(dist)} blocos${dano ? ` · vida ${q.hp}/${q.max}` : ''} · remover devolve ${costTxt(d.custo)}`, `${dano ? `<button type="button" class="btn btn-gold" data-tconserta="${q.obra}">Consertar</button>` : ''}<button type="button" class="btn btn-danger" data-tobra="${q.obra}">Remover</button>`); }
+        const casa = d.tipo === 'casa' && q.dono === myId();
+        h += row(d.gira ? thumb2(imgDe(q)) : d.img ? thumb2(d.img) : '', d.nome, `a ${Math.round(dist)} blocos${dano ? ` · vida ${q.hp}/${q.max}` : ''} · remover devolve ${d.custo ? costTxt(d.custo) : 'o kit'}${casa ? ` · entrada: ${ACESSO[q.acesso] || ACESSO.so_eu}` : ''}`, `${casa ? `<button type="button" class="btn" data-tacesso="${q.obra}">Entrada</button>` : ''}${dano ? `<button type="button" class="btn btn-gold" data-tconserta="${q.obra}">Consertar</button>` : ''}<button type="button" class="btn btn-danger" data-tobra="${q.obra}">Remover</button>`); }
       h += '</div>';
     }
     h += '<div class="section-label">Peças do clã</div><div class="list">';
@@ -10041,11 +10176,24 @@
     h += row('', 'Girar', 'Use num muro: encaixe automático → deitado → em pé', pick('girar:0', S.sel.k === 'girar'));
     h += row('', 'Remover', 'Use num muro do clã: some na hora e devolve o material', pick('remover:0', S.sel.k === 'remover'));
     h += '</div><p class="muted small-text">Muro do clã que apanhou: escolha o mesmo muro e use nele para consertar (paga o material de novo).</p><div class="list">';
-    h += '</div><p class="muted small-text">Os recursos vêm da sua terra ou do Mercado. O que o clã constrói aqui fica salvo no servidor e todos veem.</p>';
+    h += '</div><p class="muted small-text">Os recursos vêm da sua terra ou do Mercado. O que se constrói aqui fica salvo no servidor e todos veem.</p>';
     return h;
   }
   // bases: linha no chão na cor do clã e a bandeira no meio
   function desenharBases(ents, camX, camY, W2, H2, now) {
+    for (const t of TER.terrenos) {
+      const x0 = (t.x - TERRENO_R) * tp - camX, y0 = (t.y - TERRENO_R) * tp - camY, L = (2 * TERRENO_R + 1) * tp;
+      if (x0 > W2 + tp || y0 > H2 + tp || x0 + L < -tp || y0 + L < -tp) continue;
+      const cor = t.meu ? '#f1c40f' : t.pode ? '#2ecc71' : '#f4efe6', nome = t.meu ? 'Seu terreno' : t.nome;
+      ents.push({ y: -1e9, f: () => {
+        ctx.save(); ctx.strokeStyle = cor; ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(2, tp / 10); ctx.setLineDash([tp * 0.35, tp * 0.35]);
+        ctx.strokeRect(x0 + tp * 0.05, y0 + tp * 0.05, L - tp * 0.1, L - tp * 0.1);
+        ctx.globalAlpha = 0.85; ctx.setLineDash([]); ctx.font = `600 ${Math.round(tp * 0.3)}px "Barlow", sans-serif`; ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(nome).width + 12, lx = x0 + tp * 0.3, ly = y0 + tp * 0.45;
+        ctx.fillStyle = 'rgba(20,17,15,0.6)'; ctx.fillRect(lx, ly - tp * 0.2, tw, tp * 0.4);
+        ctx.fillStyle = cor; ctx.fillText(nome, lx + 6, ly + 1); ctx.restore(); ctx.textBaseline = 'alphabetic';
+      } });
+    }
     for (const b of TER.bases) {
       const x0 = (b.x - BASE_R) * tp - camX, y0 = (b.y - BASE_R) * tp - camY, L = (2 * BASE_R + 1) * tp;
       if (x0 > W2 + tp || y0 > H2 + 3 * tp || x0 + L < -tp || y0 + L < -tp) continue;
@@ -10857,7 +11005,7 @@
   $('btn-staff').addEventListener('click', () => { closeSheet(); openStaff(); });
 
   // ?teste na URL: expõe o estado para testes automáticos
-  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, get esc() { return escCache; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; } };
+  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, get esc() { return escCache; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; }, leaveHouse, renderBuild };
 
   async function boot() {
     buildSprites();

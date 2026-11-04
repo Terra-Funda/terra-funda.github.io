@@ -244,6 +244,12 @@
   T.claBaseAbandonar = () => rpc('cla_base_abandonar', {});
   T.terrasConstruir = (k, x, y, rot) => rpc('terras_construir', { p_k: k, p_x: x, p_y: y, p_rot: rot || 0 });
   T.terrasGirar = (id, rot) => rpc('terras_girar', { p_id: id, p_rot: rot });
+  // terrenos dos jogadores no mundo único (supabase/mundo1.sql)
+  T.terrasConstruir2 = (k, x, y, rot, w, h) => rpc('terras_construir2', { p_k: k, p_x: x, p_y: y, p_rot: rot || 0, p_w: w || null, p_h: h || null });
+  T.terrasObraDados = (id, dados) => rpc('terras_obra_dados', { p_id: id, p_dados: dados });
+  T.terrenoComprar = (x, y) => rpc('terreno_comprar', { p_x: x, p_y: y });
+  T.terrenoAbandonar = id => rpc('terreno_abandonar', { p_id: id });
+  T.terrenoAmigo = (id, codigo, add) => rpc('terreno_amigo', { p_id: id, p_codigo: codigo, p_add: !!add });
   T.terrasRemover = id => rpc('terras_remover', { p_id: id });
   // guerra (supabase/guerra.sql): golpes em construções de outros clãs, conserto, torre de transmissão e robôs
   T.terrasGolpear = (id, ferramenta) => rpc('terras_golpear', { p_id: id, p_ferramenta: ferramenta });
