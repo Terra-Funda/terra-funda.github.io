@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Pixelify+Sans:wght@400;600&display=swap">
-<link rel="stylesheet" href="style.css?v=96">
+<link rel="stylesheet" href="style.css?v=97">
 </head>
 <body>
 <div id="app">
@@ -24,10 +24,13 @@
   <header class="hud">
     <div class="chip coins" title="Moedas"><span class="coin" aria-hidden="true"></span><span id="coins">0</span></div>
     <div class="chip clock"><span id="clock">07:00</span><span id="depth">Superfície</span></div>
-    <div class="hud-actions">
-      <button id="btn-shop" class="btn btn-gold" type="button">Loja</button>
-      <button id="btn-menu" class="btn" type="button">Menu</button>
-      <button id="btn-tela" class="btn btn-tela" type="button" title="Tela cheia" aria-label="Tela cheia">⛶</button>
+    <div class="hud-right">
+      <div class="hud-actions">
+        <button id="btn-shop" class="btn btn-gold" type="button">Loja</button>
+        <button id="btn-menu" class="btn" type="button">Menu</button>
+        <button id="btn-tela" class="btn btn-tela" type="button" title="Tela cheia" aria-label="Tela cheia">⛶</button>
+      </div>
+      <canvas id="mini" width="264" height="264" aria-label="Minimapa: toque para abrir o mapa"></canvas>
     </div>
   </header>
 
@@ -97,6 +100,19 @@
         <button type="button" class="btn" data-close>Fechar</button>
       </div>
       <div id="decor-body"></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet-mapa" hidden>
+    <div class="panel panel-mapa" role="dialog" aria-modal="true" aria-labelledby="mapa-title">
+      <div class="panel-head">
+        <h2 id="mapa-title">Mapa</h2>
+        <button type="button" class="btn" data-close>Fechar</button>
+      </div>
+      <p class="muted small-text">Toque num lugar para marcar (até 5). Toque numa marca para tirar. Com o mapa fechado, uma seta aponta para as marcas.</p>
+      <div class="mapa-wrap"><canvas id="mapa" width="960" height="640" aria-label="Mapa do mundo"></canvas></div>
+      <p class="mapa-legenda small-text"><span style="color:#fff">● você</span> · <span style="color:#7fd0ff">● jogadores</span> · <span style="color:#f1c40f">▢ seus terrenos</span> · <span style="color:#ff5a5a">▼ marcas</span> · <span style="color:#c08850">▬ pontes</span></p>
+      <div class="list-actions"><button id="mapa-limpar" class="btn btn-danger" type="button">Tirar todas as marcas</button></div>
     </div>
   </div>
 
@@ -317,7 +333,7 @@
 </div>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="online.js?v=96"></script>
-<script src="game.js?v=96"></script>
+<script src="online.js?v=97"></script>
+<script src="game.js?v=97"></script>
 </body>
 </html>

@@ -45,6 +45,13 @@ html, body {
 }
 .hud > * { pointer-events: auto; }
 .hud-actions { display: flex; gap: 6px; }
+.hud-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none; }
+.hud-right > * { pointer-events: auto; }
+#mini { width: 112px; height: 112px; border: 2px solid var(--line); border-radius: 8px; background: #123b66; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+.panel-mapa { max-width: 980px; }
+.mapa-wrap { border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #123b66; }
+.mapa-wrap canvas { display: block; width: 100%; height: auto; touch-action: manipulation; cursor: crosshair; }
+.mapa-legenda { margin: 8px 0 0; line-height: 1.6; }
 
 .chip {
   display: flex; align-items: center; gap: 8px;
@@ -424,6 +431,7 @@ kbd {
 .hotbar .slot { flex: none; }
 /* celular deitado (tela baixa): controles nas bordas, ferramentas no meio, tudo mais compacto */
 @media (orientation: landscape) and (max-height: 520px) {
+  #mini { width: 84px; height: 84px; }
   .hud { padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
   .chip { font-size: 14px; padding: 4px 8px; }
   #depth { font-size: 11px; }

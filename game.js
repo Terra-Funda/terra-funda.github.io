@@ -6250,7 +6250,7 @@
     const hh = String(Math.floor(mins / 60)).padStart(2, '0'), mm = String(Math.floor(mins % 60 / 10) * 10).padStart(2, '0');
     $('clock').textContent = `${hh}:${mm} · ${isDay() ? 'Dia' : 'Noite'}`;
     const here = BIOMES[S.biome[Math.floor(S.p.y) * W + Math.floor(S.p.x)]];
-    $('depth').textContent = S.p.z === 0 ? (typeof modoClas !== 'undefined' && modoClas ? '⚔ Terras dos Clãs · ' : '') + here.nome : layerName(S.p.z);
+    $('depth').textContent = S.p.z === 0 ? (typeof modoClas !== 'undefined' && modoClas && !mundoUnico() ? '⚔ Terras dos Clãs · ' : '') + here.nome : layerName(S.p.z);
     if (lastBiome && lastBiome !== here && S.p.z === 0) toast(`Entrando: ${here.nome}`, 'leaf');
     lastBiome = here;
     if (openSheet && openSheet.id === 'sheet-admin') drawMinimap();
@@ -6503,6 +6503,101 @@
     toast(`Skin ${sk.nome} comprada e vestida`, 'gold'); save();
   }
 
+  // ================= Minimapa e mapa do mundo (com marcas de cada jogador) =================
+  // O minimapa fica embaixo de Loja e Menu e mostra a área em volta; tocando, abre o mapa inteiro.
+  // As marcas ficam só neste aparelho; com o mapa fechado, uma seta e uma linha apontam para elas.
+  const MARCAS_KEY = 'terra-funda-marcas', MARCAS_MAX = 5, MINI_VISTA = 90;
+  let marcas = [];
+  try { const v = JSON.parse(localStorage.getItem(MARCAS_KEY) || '[]'); if (Array.isArray(v)) marcas = v.filter(m => m && isFinite(m.x) && isFinite(m.y)).map(m => ({ x: m.x | 0, y: m.y | 0 })).slice(0, MARCAS_MAX); } catch (e) { /* sem marcas */ }
+  const salvarMarcas = () => { try { localStorage.setItem(MARCAS_KEY, JSON.stringify(marcas)); } catch (e) { /* tudo bem */ } };
+  let miniBaseEm = 0, miniBaseDe = null;
+  function miniBasePronta(forcar) {
+    const agora = performance.now();
+    if (forcar || miniBaseDe !== S || agora - miniBaseEm > 20000) { rebuildMiniBase(); miniBaseEm = agora; miniBaseDe = S; }
+  }
+  // tudo o que vai por cima do chão: terrenos, bases, porto, jogadores, marcas. k = pixels por bloco
+  function desenharCamadas(c, k, ox, oy, cheio) {
+    const px = x => (x - ox) * k, py = y => (y - oy) * k, esp = Math.max(1, k * (cheio ? 0.9 : 0.8));
+    if (modoClas) {
+      for (const b of TER.bases) {
+        const cor = (b.tag && CLA.cores[b.tag]) || b.cor || '#c0392b', L = (2 * BASE_R + 1) * k;
+        c.strokeStyle = cor; c.lineWidth = esp * 1.4; c.strokeRect(px(b.x - BASE_R), py(b.y - BASE_R), L, L);
+        c.fillStyle = cor; c.globalAlpha = 0.16; c.fillRect(px(b.x - BASE_R), py(b.y - BASE_R), L, L); c.globalAlpha = 1;
+        if (cheio && b.tag) { c.font = '600 15px "Pixelify Sans", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillStyle = '#14110f'; c.fillText(`[${b.tag}]`, px(b.x) + 1, py(b.y - BASE_R) - 1); c.fillStyle = cor; c.fillText(`[${b.tag}]`, px(b.x), py(b.y - BASE_R) - 2); }
+      }
+      for (const t of TER.terrenos) {
+        const L = (2 * TERRENO_R + 1) * k;
+        c.strokeStyle = t.meu ? '#f1c40f' : t.pode ? '#2ecc71' : 'rgba(244,239,230,0.75)'; c.lineWidth = esp * (t.meu ? 1.6 : 1);
+        c.strokeRect(px(t.x - TERRENO_R), py(t.y - TERRENO_R), L, L);
+      }
+    }
+    if (S.porto) { c.fillStyle = '#5fb3ff'; c.strokeStyle = '#14110f'; c.lineWidth = 1; const r = Math.max(3, k * 2); c.fillRect(px(S.porto.x + 2) - r / 2, py(S.porto.y + 1) - r / 2, r, r); c.strokeRect(px(S.porto.x + 2) - r / 2, py(S.porto.y + 1) - r / 2, r, r); }
+    if (modoClas) for (const r of REMOTOS.values()) {
+      if (r.x == null) continue;
+      const rr = cheio ? 6 : 3.2;
+      c.fillStyle = r.tc || '#7fd0ff'; c.strokeStyle = '#14110f'; c.lineWidth = 1.5;
+      c.beginPath(); c.arc(px(r.x), py(r.y), rr, 0, 6.28); c.fill(); c.stroke();
+      if (cheio) { c.font = '600 14px "Pixelify Sans", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom'; const nome = (r.tag ? `[${r.tag}] ` : '') + (r.nome || '?'), tw = c.measureText(nome).width; c.fillStyle = 'rgba(20,17,15,0.75)'; c.fillRect(px(r.x) - tw / 2 - 4, py(r.y) - rr - 20, tw + 8, 18); c.fillStyle = '#f4eadb'; c.fillText(nome, px(r.x), py(r.y) - rr - 4); }
+    }
+    marcas.forEach((m, n) => {
+      const x = px(m.x + 0.5), y = py(m.y + 0.5), r = cheio ? 9 : 5;
+      c.fillStyle = '#ff5a5a'; c.strokeStyle = '#14110f'; c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x - r * 0.75, y - r * 1.5); c.arc(x, y - r * 2, r, Math.PI * 0.8, Math.PI * 0.2); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#fff'; c.font = `600 ${cheio ? 12 : 8}px "Pixelify Sans", monospace`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(n + 1), x, y - r * 2 + 1);
+    });
+    // você (com a direção)
+    const ex = px(S.p.x), ey = py(S.p.y), er = cheio ? 7 : 4.5, [dx, dy] = DIRS[S.p.dir] || [0, 1];
+    c.fillStyle = '#ffffff'; c.strokeStyle = '#14110f'; c.lineWidth = 2;
+    c.beginPath(); c.arc(ex, ey, er, 0, 6.28); c.fill(); c.stroke();
+    c.fillStyle = '#14110f'; c.beginPath(); c.arc(ex + dx * er * 0.45, ey + dy * er * 0.45, er * 0.35, 0, 6.28); c.fill();
+  }
+  function desenharMini() {
+    const cv = $('mini');
+    if (!cv || !S || cv.offsetParent === null) return;
+    miniBasePronta();
+    const c = cv.getContext('2d'), N = cv.width, k = N / MINI_VISTA, ox = S.p.x - MINI_VISTA / 2, oy = S.p.y - MINI_VISTA / 2;
+    c.imageSmoothingEnabled = false;
+    c.fillStyle = '#123b66'; c.fillRect(0, 0, N, N);
+    c.drawImage(miniBase, ox, oy, MINI_VISTA, MINI_VISTA, 0, 0, N, N);
+    // linha até a marca mais perto
+    let alvo = null, dmin = Infinity;
+    for (const m of marcas) { const d = Math.hypot(m.x + 0.5 - S.p.x, m.y + 0.5 - S.p.y); if (d < dmin) { dmin = d; alvo = m; } }
+    if (alvo && dmin > 2) {
+      c.save(); c.setLineDash([7, 5]); c.lineWidth = 3; c.strokeStyle = 'rgba(20,17,15,0.7)';
+      c.beginPath(); c.moveTo(N / 2, N / 2); c.lineTo((alvo.x + 0.5 - ox) * k, (alvo.y + 0.5 - oy) * k); c.stroke();
+      c.lineWidth = 2; c.strokeStyle = '#ff5a5a'; c.stroke(); c.restore();
+    }
+    desenharCamadas(c, k, ox, oy, false);
+    c.fillStyle = 'rgba(20,17,15,0.75)'; c.fillRect(0, N - 34, N, 34);
+    c.fillStyle = '#f4eadb'; c.font = '600 22px "Pixelify Sans", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(alvo ? `▼${marcas.indexOf(alvo) + 1}  ${Math.round(dmin)} m` : 'Mapa', N / 2, N - 16);
+  }
+  setInterval(() => { if (!document.hidden && !(openSheet && openSheet.id === 'sheet-mapa')) desenharMini(); }, 300);
+  function desenharMapa() {
+    const cv = $('mapa');
+    if (!cv || !S) return;
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const c = cv.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    c.drawImage(miniBase, 0, 0);
+    desenharCamadas(c, 1, 0, 0, true);
+  }
+  function abrirMapa() { miniBasePronta(true); showSheet('sheet-mapa'); desenharMapa(); }
+  setInterval(() => { if (openSheet && openSheet.id === 'sheet-mapa') desenharMapa(); }, 500);
+  function tocarMapa(e) {
+    const cv = $('mapa'), rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * W, y = (e.clientY - rect.top) / rect.height * H, pxPorBloco = rect.width / W;
+    const perto = marcas.findIndex(m => Math.hypot(m.x + 0.5 - x, m.y + 0.5 - y) * pxPorBloco < 22);
+    if (perto >= 0) { marcas.splice(perto, 1); toast('Marca tirada'); }
+    else if (marcas.length >= MARCAS_MAX) { toast(`Até ${MARCAS_MAX} marcas: toque numa para tirar`, 'warn'); return; }
+    else if (x < 0 || y < 0 || x >= W || y >= H) return;
+    else { marcas.push({ x: Math.floor(x), y: Math.floor(y) }); toast(`Marca ${marcas.length} posta: a ${Math.round(Math.hypot(x - S.p.x, y - S.p.y))} blocos`, 'leaf'); }
+    salvarMarcas(); desenharMapa();
+  }
+  $('mini').addEventListener('click', abrirMapa);
+  $('mapa').addEventListener('click', tocarMapa);
+  $('mapa-limpar').addEventListener('click', () => { if (!marcas.length) return; marcas = []; salvarMarcas(); desenharMapa(); toast('Marcas tiradas'); });
+
   // ================= Administrador =================
   // Painel escondido (5 toques no relógio, ou a tecla P cinco vezes). No multiplayer ele só abre
   // na conta do administrador e as ações são validadas no servidor.
@@ -6532,14 +6627,14 @@
       else if (t === T.ROCK) c = C.rock;
       else if (t === T.VALA || t === T.HOLE) c = C.dug;
       else if (t === T.TILLED || t === T.CROP) c = C.farm;
-      else if (t === T.WALL) c = C.wall;
+      else if (t === T.WALL || t === T.GATE) c = C.wall;
       if (t === T.PONTE) c = C.wall; else if (t === T.RIO || (t === T.MAR && S.fundo && S.fundo[i] > MAR_RASO)) c = C.deep;
       d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255;
     }
     mc.putImageData(img, 0, 0);
     for (const b of S.builds) {   // construções no minimapa
       const d = BUILDS[b.k];
-      mc.fillStyle = d.tipo === 'forte' ? 'rgba(120,90,60,0.55)' : d.tipo === 'casa' ? '#c0703a' : '#b07a48';
+      mc.fillStyle = b.dono && b.dono === myId() ? '#f1c40f' : d.tipo === 'forte' ? 'rgba(120,90,60,0.55)' : d.tipo === 'casa' ? '#c0703a' : '#b07a48';
       if (d.tipo === 'casa' || d.tipo === 'forte') {
         mc.beginPath(); mc.moveTo(b.x, b.y + d.h / 2); mc.lineTo(b.x + d.w / 2, b.y); mc.lineTo(b.x + d.w, b.y + d.h / 2); mc.lineTo(b.x + d.w / 2, b.y + d.h); mc.fill();
       } else mc.fillRect(b.x, b.y, d.w, d.h);
@@ -8279,9 +8374,19 @@
     const alvos = S.npcs.map(n => ({ x: n.x, y: n.y, cor: n.def.cor, letra: n.def.nome.replace('Dona ', '')[0] }));
     if (S.porto && S.p.z === 0) alvos.push({ x: S.porto.x + 2.5, y: S.porto.y + 1.5, cor: '#5fb3ff', letra: '⛵' });   // o porto também
     if (modoClas) alvos.push(...terrasMarcadores());
+    if (S.p.z === 0) marcas.forEach((m, n) => alvos.push({ x: m.x + 0.5, y: m.y + 0.5, cor: '#ff5a5a', letra: String(n + 1), pino: true }));
     for (const n of alvos) {
       const sx = n.x * tp - camX, sy = n.y * tp - camY;
-      if (sx > 0 && sx < W2 && sy > top && sy < bottom) continue;
+      if (sx > 0 && sx < W2 && sy > top && sy < bottom) {
+        if (n.pino) {   // marca à vista: um alfinete no lugar
+          const r = 9 * dpr;
+          ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(sx, sy, r * 0.8, r * 0.3, 0, 0, 6.28); ctx.fill();
+          ctx.fillStyle = n.cor; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - r * 0.7, sy - r * 1.6); ctx.arc(sx, sy - r * 2, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill();
+          ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#14110f'; ctx.stroke();
+          ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(11 * dpr)}px "Pixelify Sans", "Courier New", monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n.letra, sx, sy - r * 2 + dpr);
+        }
+        continue;
+      }
       const ang = Math.atan2(sy - py0, sx - px0);
       const cosA = Math.cos(ang), sinA = Math.sin(ang);
       const kx = cosA > 0 ? (W2 - side - px0) / cosA : (side - px0) / cosA;
