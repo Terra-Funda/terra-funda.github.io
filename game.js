@@ -8,7 +8,7 @@
   'use strict';
 
   // ================= Configuração =================
-  const REGION = 160, RCOLS = 3, RROWS = 2;  // 6 regiões de 160 × 160, cada uma com seu bioma
+  const REGION = 320, RCOLS = 3, RROWS = 2;  // 6 regiões de 320 × 320, cada uma com seu bioma (mapa 960 × 640)
   const W = REGION * RCOLS, H = REGION * RROWS, D = 6; // largura, altura e camadas (0 = superfície)
   const SPAWN = { x: REGION + 80, y: 80 };   // centro da região dos Campos
   const DAY_MS = 10 * 60 * 1000;          // duração de um dia completo (10 min no protótipo)
@@ -21,7 +21,9 @@
   const T = {
     AIR: 0, GRASS: 1, TILLED: 2, CROP: 3, VALA: 4, TREE: 5, SOURCE: 6, HOLE: 7, WALL: 8, ROCK: 9, SAPLING: 10,
     DIRT: 11, STONE: 12, COAL: 13, BRONZE: 14, IRON: 15, SILVER: 16, GOLD: 17, OIL: 18, DIAMOND: 19, GATE: 20,
+    MAR: 21, RIO: 22, PONTE: 23,   // mar em volta do mapa (raso até 6 blocos da praia), rios fundos e pontes
   };
+  const MAR_RASO = 6;   // no mar, dá para entrar até 6 blocos; mais longe, afoga
 
   const ITEMS = {
     javali: { nome: 'Javali dourado (vivo)', valor: 600, cor: '#f2c84b' },
@@ -420,7 +422,6 @@
       const tv = nTree(x / 9, y / 9), rv = nRock(x / 5, y / 5);
       if (tv > B.tree[0] && rnd() < B.tree[1]) t = rnd() < 0.22 ? T.SAPLING : T.TREE;
       else if (rv > B.rock[0] && rnd() < B.rock[1]) t = T.ROCK;
-      if (x < 2 || y < 2 || x >= W - 2 || y >= H - 2) t = T.TREE;
       tl[I(x, y, 0)] = t;
       for (let z = 1; z < D; z++) {
         let u = T.STONE;
@@ -429,6 +430,8 @@
         tl[I(x, y, z)] = u;
       }
     }
+
+    genAgua(s);
 
     // Minérios comuns por camada, em cada região: [minério, quantidade de veios, tamanho].
     // Nas montanhas eles ficam uma camada mais rasos.
@@ -444,7 +447,7 @@
       for (let z = 1; z < D; z++) {
         const table = veins[B.raso ? Math.min(D - 1, z + 1) : z] || [];
         for (const [ore, count, size] of table) {
-          for (let k = 0; k < count; k++) {
+          for (let k = 0; k < count * 4; k++) {
             let x = rx0 + 2 + Math.floor(rnd() * (REGION - 4)), y = ry0 + 2 + Math.floor(rnd() * (REGION - 4));
             for (let st = 0; st < size; st++) {
               const i = I(x, y, z);
@@ -481,8 +484,9 @@
     for (let reg = 0; reg < RCOLS * RROWS; reg++) {
       const B = BIOMES[reg], [rx0, ry0] = regionOrigin(reg), gap = B.id === 'pantano' ? 12 : 20;
       let made = 0;
-      for (let tries = 0; made < B.fontes && tries < 600; tries++) {
+      for (let tries = 0; made < B.fontes * 3 && tries < 1500; tries++) {
         const x = rx0 + 6 + Math.floor(rnd() * (REGION - 12)), y = ry0 + 6 + Math.floor(rnd() * (REGION - 12));
+        if (aguaPerto(tl, x, y, 10)) continue;
         if (spots.every(([a, b]) => (a - x) ** 2 + (b - y) ** 2 > gap * gap)) { spots.push([x, y]); made++; }
       }
     }
@@ -497,6 +501,93 @@
       tl[I(sx, sy, 0)] = T.SOURCE;
     }
   }
+
+  // ---- Mar e rios. O mar contorna o mapa; três rios fundos dividem a terra em quatro partes
+  // e só se atravessa pelas pontes (ninguém constrói em cima nem na entrada delas).
+  function aguaPerto(tl, x, y, r) {
+    for (let dy = -r; dy <= r; dy += 2) for (let dx = -r; dx <= r; dx += 2) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) return true;
+      const t = tl[yy * W + xx]; if (t === T.MAR || t === T.RIO || t === T.PONTE) return true;
+    }
+    return false;
+  }
+  function genAgua(s) {
+    const tl = s.tiles, aux = s.aux, nC = makeNoise(s.seed + 61), nR = makeNoise(s.seed + 62);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {   // mar: a praia ondula entre 12 e 22 blocos da borda
+      const d = Math.min(x, y, W - 1 - x, H - 1 - y);
+      if (d < 12 + nC(x / 30, y / 30) * 10) { tl[y * W + x] = T.MAR; aux[y * W + x] = 0; }
+    }
+    const pontes = [];
+    const rio = (ax, ay, bx, by, amp, larg, sem, paraNoRio) => {
+      const L = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L, caminho = [];
+      for (let t = 0; t <= L; t += 0.5) {
+        const off = (nR(t / 70 + sem, sem) - 0.5) * 2 * amp, cx = ax + ux * t - uy * off, cy = ay + uy * t + ux * off;
+        const xi = Math.round(cx), yi = Math.round(cy);
+        if (paraNoRio && t > 40 && xi > 0 && yi > 0 && xi < W && yi < H && tl[yi * W + xi] === T.RIO && !caminho.some(([px, py]) => Math.abs(px - xi) + Math.abs(py - yi) < 6)) break;
+        caminho.push([xi, yi]);
+        const r = larg / 2;
+        for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
+          const x = Math.round(cx + dx), y = Math.round(cy + dy);
+          if (x < 0 || y < 0 || x >= W || y >= H || dx * dx + dy * dy > r * r + 0.3) continue;
+          if (tl[y * W + x] !== T.MAR) { tl[y * W + x] = T.RIO; aux[y * W + x] = 0; }
+        }
+      }
+      // pontes de 3 blocos de largura a cada ~75 blocos, atravessando o rio
+      const vert = Math.abs(ux) >= Math.abs(uy);   // rio corre na horizontal: a ponte atravessa na vertical
+      for (let k = 60; k < caminho.length - 40; k += 150) {
+        const [px, py] = caminho[k];
+        if (pontes.some(([qx, qy]) => Math.hypot(qx - px, qy - py) < 40)) continue;
+        let ok = true; const faixa = [];
+        for (let o = -1; o <= 1 && ok; o++) {
+          const bx0 = vert ? px + o : px, by0 = vert ? py : py + o;
+          if (tl[by0 * W + bx0] !== T.RIO) { ok = false; break; }
+          let a = 0, b = 0;
+          while (a < 12 && tl[(vert ? by0 - a - 1 : by0) * W + (vert ? bx0 : bx0 - a - 1)] === T.RIO) a++;
+          while (b < 12 && tl[(vert ? by0 + b + 1 : by0) * W + (vert ? bx0 : bx0 + b + 1)] === T.RIO) b++;
+          if (a >= 12 || b >= 12) { ok = false; break; }
+          const fim1 = tl[(vert ? by0 - a - 1 : by0) * W + (vert ? bx0 : bx0 - a - 1)], fim2 = tl[(vert ? by0 + b + 1 : by0) * W + (vert ? bx0 : bx0 + b + 1)];
+          if (fim1 === T.MAR || fim2 === T.MAR) { ok = false; break; }
+          for (let q = -a; q <= b; q++) faixa.push(vert ? [bx0, by0 + q] : [bx0 + q, by0]);
+        }
+        if (!ok) continue;
+        for (const [x, y] of faixa) { tl[y * W + x] = T.PONTE; aux[y * W + x] = vert ? 1 : 2; }
+        pontes.push([px, py]);
+      }
+    };
+    rio(650, -4, 600, H + 4, 35, 4, 3, false);             // o rio grande, de norte a sul
+    rio(-4, 400, W * 0.85, 400, 28, 3, 11, true);             // do oeste até o rio grande
+    rio(W + 4, 250, W * 0.35, 250, 28, 3, 23, true);         // do leste até o rio grande
+    for (const [px, py] of pontes) for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {   // entradas das pontes livres
+      const x = px + dx, y = py + dy;
+      if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
+      const t = tl[y * W + x]; if (t === T.TREE || t === T.SAPLING || t === T.ROCK) tl[y * W + x] = T.GRASS;
+    }
+  }
+  // água fixa do mar e dos rios, profundidade do mar (blocos até a terra) e a zona das pontes
+  function prepararAgua(st) {
+    const tl = st.tiles, N = W * H, fundo = new Uint8Array(N), zona = new Uint8Array(N), fila = new Int32Array(N);
+    let a = 0, b = 0;
+    for (let i = 0; i < N; i++) {
+      const t = tl[i];
+      if (t === T.MAR || t === T.RIO) st.water[i] = SOURCE_LEVEL;
+      if (t === T.MAR) fundo[i] = 255; else if (t !== T.RIO) { fila[b++] = i; }
+    }
+    while (a < b) {
+      const i = fila[a++], x = i % W, d = fundo[i] === 255 ? 0 : fundo[i];
+      for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
+        if (j < 0 || j >= N || fundo[j] !== 255) continue;
+        fundo[j] = Math.min(254, d + 1); fila[b++] = j;
+      }
+    }
+    for (let i = 0; i < N; i++) if (fundo[i] === 255) fundo[i] = 254;
+    for (let i = 0; i < N; i++) if (tl[i] === T.PONTE) {
+      const x = i % W, y = (i / W) | 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H) zona[yy * W + xx] = 1; }
+    }
+    st.fundo = fundo; st.ponteZona = zona;
+  }
+  const naPonte = (x, y) => !!(S.ponteZona && x >= 0 && y >= 0 && x < W && y < H && S.ponteZona[y * W + x]);
 
   const MOEDAS_INICIAIS = 10000;   // todo jogador começa com pelo menos isso (recursos vêm do Mercado)
   function newWorld() {
@@ -579,20 +670,20 @@
       if (!d || d.v !== 2) return null;
       const s = emptyState(d.seed);
       const tiles = unrle(fromB64(d.tiles), s.tiles.length), aux = unrle(fromB64(d.aux), s.aux.length);
-      if (!tiles || !aux) return null;
-      s.tiles = tiles; s.aux = aux;
-      s.road = d.road ? unrle(fromB64(d.road), W * H) : null;
+      const redim = !tiles || !aux;   // o mapa mudou de tamanho: terra nova, mas o jogador fica com tudo o que tinha
+      if (redim) genWorld(s); else { s.tiles = tiles; s.aux = aux; }
+      s.road = !redim && d.road ? unrle(fromB64(d.road), W * H) : null;
       genBiomes(s);
-      Object.assign(s.p, d.p);
+      if (!redim) Object.assign(s.p, d.p);
       s.inv = d.inv || {}; s.coins = d.coins || 0; s.owned = d.owned || {};
       s.bonusInicial = 1; if (!d.bonusInicial && s.coins < MOEDAS_INICIAIS) { s.ganhouInicial = MOEDAS_INICIAIS - s.coins; s.coins = MOEDAS_INICIAIS; }   // quem já jogava fica com pelo menos 10.000
       s.time = d.time || 0; s.tool = (d.tool || 0) % TOOLS.length; s.hints = d.hints || {}; s.catalog = d.catalog || {};
-      s.savedNpcs = Array.isArray(d.npcs) ? d.npcs : [];
-      if (d.home && typeof d.home.x === 'number') s.home = d.home;
+      s.savedNpcs = !redim && Array.isArray(d.npcs) ? d.npcs : [];
+      if (!redim && d.home && typeof d.home.x === 'number') s.home = d.home;
       s.homeReadyAt = d.homeReadyAt || 0;
-      s.deposits = Array.isArray(d.deposits) ? d.deposits : [];
+      if (!redim) s.deposits = Array.isArray(d.deposits) ? d.deposits : [];
       s.char = CHARACTERS.some(c => c.id === d.char) ? d.char : 'menino';
-      if (d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {};
+      if (!redim && d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {};
       { // skins antigas que saíram do jogo: devolve as moedas
         const fora = s.skins.filter(id => !SKINS.some(k => k.id === id));
         if (fora.length) { const PRECO_ANTIGO = {"guarda_azul":1400,"mecanico_vermelho":1400,"cacadora":2800,"policial":2800,"saqueador":2800,"pirata":3500,"rei_mascarado":3500,"samurai":6300,"pistoleira":6300,"cowboy_caveira":6300,"princesa":6300,"ceifador":8400,"exploradora":1400,"arqueiro_mata":2800,"arqueira_mata":2800,"guerreiro_tribal":3500,"sombra_tatica":6300,"carrasco":6300,"cacique":12600,"ciberpiloto":12600,"espectro":14000,"guardiao_cristal":17500,"rei_dourado":17500,"raposa":20000,"elfo_vermelho":20000,"elfo_verde":20000,
@@ -600,8 +691,8 @@
           "professor":2800,"secretaria":2800,"fazendeiro":2800,"mineiro":2800,"operario":2800,"fantasma_dourado":6300,"bruxa_roxa":6300,"cavaleiro_gelo":6300,"boneco_neve":20000,"rei":20000,"cavaleiro_lava":20000,"arqueiro_lava":20000,"fantasma":5000,"espirito_fogo":5000,"mago_sombra":5000,"lobisomem":8000,"guaxinim_mago":8000,"cavaleiro_azul":8000,"elfo_natal":20000,"anjo":20000,"sombra":20000,"dragao_pedra":20000,"dragao_vermelho":20000,"raposinha":20000,"retalhos":20000}; s.coins += fora.reduce((t, id) => t + (PRECO_ANTIGO[id] || 3000), 0); s.devolvidoSkins = fora.reduce((t, id) => t + (PRECO_ANTIGO[id] || 3000), 0); s.skins = s.skins.filter(id => SKINS.some(k => k.id === id)); if (fora.includes(s.skin)) s.skin = null; }
       }
       if (['arco', 'cetro', 'livro'].includes(TOOLS[s.tool].id) && !s.owned[TOOLS[s.tool].id]) s.tool = 0;
-      if (d.wmat) { const wm = unrle(fromB64(d.wmat), s.wmat.length); if (wm) s.wmat = wm; }
-      if (!d.murosV2) {   // muros antigos saíram do jogo: some com eles e devolve o material
+      if (!redim && d.wmat) { const wm = unrle(fromB64(d.wmat), s.wmat.length); if (wm) s.wmat = wm; }
+      if (!d.murosV2 && !redim) {   // muros antigos saíram do jogo: some com eles e devolve o material
         let n = 0;
         for (let i = 0; i < s.tiles.length; i++) {
           const t = s.tiles[i];
@@ -622,7 +713,8 @@
       if (d.sel && (['nada', 'muro', 'portao', 'girar', 'remover'].includes(d.sel.k) || (d.sel.k === 'kit' && BUILDS[d.sel.id]))) s.sel = d.sel;
       s.bots = Array.isArray(d.bots) ? d.bots.map(newBot) : [];
       s.hp = typeof d.hp === 'number' && d.hp > 0 ? d.hp : 150; s.wxp = d.wxp || {}; s.wbless = d.wbless || {};
-      s.camps = Array.isArray(d.camps) ? d.camps : []; s.mundo = d.mundo || null; s.presentes = d.presentes || {}; s.fugPegos = d.fugPegos || {}; s.fugVisto = d.fugVisto || {}; s.vilaEstado = d.vilaEstado || {}; s.aura = d.aura || null; s.playMs = d.playMs || 0; s.morte = d.morte || null; s.bichoMorto = d.bichoMorto || {};
+      s.camps = !redim && Array.isArray(d.camps) ? d.camps : []; s.mundo = d.mundo || null; s.presentes = d.presentes || {}; s.fugPegos = d.fugPegos || {}; s.fugVisto = d.fugVisto || {}; s.vilaEstado = d.vilaEstado || {}; s.aura = d.aura || null; s.playMs = d.playMs || 0; s.morte = redim ? null : d.morte || null; s.bichoMorto = d.bichoMorto || {};
+      if (redim) { s.migrado = false; s.mapaNovo = migrarTerra(s) || { kits: 0, muros: 0 }; if (d.migrado) s.migrado = true; }
       return s;
     } catch (e) { return null; }
   }
@@ -635,12 +727,13 @@
   function walkable(t, z) {
     if (t === T.GATE) return true;
     return z === 0
-      ? (t === T.GRASS || t === T.TILLED || t === T.CROP || t === T.VALA || t === T.HOLE)
+      ? (t === T.GRASS || t === T.TILLED || t === T.CROP || t === T.VALA || t === T.HOLE || t === T.MAR || t === T.PONTE)
       : (t === T.AIR || t === T.HOLE);
   }
   function canStand(px, py, z, r, quem) {
     const pts = [[px - r, py - r], [px + r, py - r], [px - r, py + r], [px + r, py + r]];
     for (const [x, y] of pts) if (!walkable(tileAt(Math.floor(x), Math.floor(y), z), z)) return false;
+    if (z === 0 && quem !== 'jogador') for (const [x, y] of pts) if (tileAt(Math.floor(x), Math.floor(y), 0) === T.MAR) return false;   // bichos e robôs não entram no mar
     if (modoClas && z === 0 && (quem === 'jogador' || quem === 'robo')) for (const [x, y] of pts) if (portaoFechado(Math.floor(x), Math.floor(y))) return false;
     if (z === 0 && S.builds.length) for (const [x, y] of pts) if (buildBlocks(x, y, quem !== 'jogador')) return false;
     return true;
@@ -1022,6 +1115,19 @@
     effects.push({ txt: '-' + Math.round(n * k), x: S.p.x, y: S.p.y - 1.2, z: S.p.z, t0: now, dur: 700, cor: '#ff6a5a' });
     shake(120, tp * 0.04);
     if (S.hp <= 0) die(mob);
+  }
+  // mar: até 6 blocos da praia dá para andar; mais longe, a vida cai rápido e a pessoa se afoga
+  let afogando = 0;
+  function afogarTick(dt) {
+    const p = S.p, f = S.fundo;
+    if (!f || p.z !== 0 || interior || S.hp <= 0) { afogando = 0; return; }
+    const k = Math.floor(p.y) * W + Math.floor(p.x);
+    if (!(S.tiles[k] === T.MAR && f[k] > MAR_RASO)) { afogando = 0; return; }
+    if (!afogando) toast('Água funda! Volte para a praia ou você vai se afogar.', 'warn', 3000);
+    afogando += dt;
+    if (afogando < 0.6) return;
+    S.hp = Math.max(0, S.hp - HP_MAX * 0.45 * dt); hurtAt = performance.now();
+    if (S.hp <= 0) { afogando = 0; die(null); toast('Você se afogou e acordou em casa.', 'warn', 4000); }
   }
   function die(mob) {
     const p = S.p;
@@ -1541,7 +1647,7 @@
         let i = I(xa, y, z);
         for (let x = xa; x <= xb; x++, i++) {
           const t = tl[i];
-          if (t === T.SOURCE) { w2[i] = SOURCE_LEVEL; continue; }
+          if (t === T.SOURCE || t === T.MAR || t === T.RIO) { w2[i] = SOURCE_LEVEL; continue; }
           const open = z === 0 ? (t === T.VALA || t === T.HOLE) : (t === T.AIR || t === T.HOLE);
           if (!open) { w2[i] = 0; continue; }
           let m = Math.max(w[i - 1], w[i + 1], w[i - W], w[i + W]) - 1;
@@ -1813,6 +1919,7 @@
     const free = z === 0 ? (t === T.GRASS || t === T.TILLED) : t === T.AIR;
     if (!free && !isWall) return;
     if (isWall && (S.wmat[i] & 15) === m && (t === T.GATE) === gate) return;
+    if (z === 0 && naPonte(x, y)) { toast('Não dá para fechar a ponte nem a entrada dela', 'warn'); actHeld = false; return; }
     if (playerInTile(x, y) && !gate) return;
     if (z === 0 && S.builds.some(b => { const hb = shapeHit(b, x + 0.5, y + 0.5); return hb === 'solid' || (hb && BUILDS[b.k].tipo !== 'forte'); })) {
       toast('Tem uma construção aí', 'warn'); return;
@@ -1881,10 +1988,11 @@
     if (c.x < 2 || c.y < 2 || c.x + d.w > W - 2 || c.y + d.h > H - 2) return 'Fora do mapa';
     const small = d.w * d.h <= 4;
     for (let y = c.y; y < c.y + d.h; y++) for (let x = c.x; x < c.x + d.w; x++) {
+      if (naPonte(x, y)) return 'Não dá para construir na ponte nem na entrada dela';
       const px = x + 0.5, py = y + 0.5, hc = shapeHit(c, px, py);
       if (!hc) continue;
       const i = I(x, y, 0), t = S.tiles[i];
-      if (t === T.SOURCE || t === T.HOLE || t === T.WALL || t === T.GATE) return 'Tem água, buraco ou muro no caminho';
+      if (t === T.SOURCE || t === T.HOLE || t === T.WALL || t === T.GATE || t === T.MAR || t === T.RIO || t === T.PONTE) return 'Tem água, buraco ou muro no caminho';
       if (small && !(t === T.GRASS || t === T.TILLED || t === T.VALA || t === T.CROP)) return 'Limpe o terreno antes';
       if (small && S.water[i] > 0) return 'Não dá para colocar na água';
       for (const b of S.builds) {
@@ -2144,6 +2252,7 @@
       return;
     }
     const t = tileAt(x, y, z);
+    if (z === 0 && (tool === 'picareta' || tool === 'enxada') && (t === T.GRASS || t === T.TILLED) && naPonte(x, y)) { actHeld = false; toast('A entrada da ponte fica livre: não dá para cavar aí', 'warn'); return; }
     swing = SWING_TIME;
     cooldown = Math.max(cooldown, 0.25);
     if (t === 255) return;
@@ -2290,7 +2399,7 @@
     if (z >= D - 1) { toast('Esta é a camada mais funda', 'warn'); return; }
     const here = I(x, y, z), below = I(x, y, z + 1);
     const th = S.tiles[here], tb = S.tiles[below];
-    if (z === 0 && th !== T.HOLE && buildBlocks(x + 0.5, y + 0.5)) { toast('Não dá para cavar aqui', 'warn'); return; }
+    if (z === 0 && th !== T.HOLE && (buildBlocks(x + 0.5, y + 0.5) || naPonte(x, y))) { toast('Não dá para cavar aqui', 'warn'); return; }
     if (th !== T.HOLE) {
       const ok = z === 0 ? (th === T.GRASS || th === T.TILLED || th === T.VALA) : th === T.AIR;
       if (!ok) { toast('Não dá para cavar aqui', 'warn'); return; }
@@ -2742,6 +2851,7 @@
     [T.AIR]: 'floor', [T.SAPLING]: 'tree', [T.GRASS]: 'grass', [T.TILLED]: 'tilled', [T.CROP]: 'tilled', [T.VALA]: 'vala', [T.TREE]: 'tree',
     [T.SOURCE]: 'source', [T.HOLE]: 'hole', [T.WALL]: 'wall', [T.GATE]: 'wall', [T.ROCK]: 'rock', [T.DIRT]: 'dirt', [T.STONE]: 'stone',
     [T.COAL]: 'coal', [T.BRONZE]: 'bronze', [T.IRON]: 'iron', [T.SILVER]: 'silver', [T.GOLD]: 'gold', [T.OIL]: 'oil', [T.DIAMOND]: 'diamond',
+    [T.MAR]: 'vala', [T.RIO]: 'vala', [T.PONTE]: 'vala',
   };
   const isSolidUnder = t => (t >= T.DIRT && t <= T.DIAMOND) || t === T.WALL;
 
@@ -6413,7 +6523,7 @@
     const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
     const groundRGB = BIOMES.map(b => hex(GROUND[b.id][0]));
     const treeRGB = BIOMES.map(b => b.id === 'neve' ? hex('#9fb4a8') : b.id === 'deserto' ? hex('#6f9a4f') : hex('#2a5a26'));
-    const C = { water: hex('#3a8ad8'), rock: hex('#8d9096'), dug: hex('#5a3f28'), farm: hex('#7a5232'), wall: hex('#b07a48') };
+    const C = { deep: hex('#1f5a9a'), water: hex('#3a8ad8'), rock: hex('#8d9096'), dug: hex('#5a3f28'), farm: hex('#7a5232'), wall: hex('#b07a48') };
     for (let i = 0; i < W * H; i++) {
       const t = S.tiles[i], b = S.biome[i];
       let c = groundRGB[b];
@@ -6423,6 +6533,7 @@
       else if (t === T.VALA || t === T.HOLE) c = C.dug;
       else if (t === T.TILLED || t === T.CROP) c = C.farm;
       else if (t === T.WALL) c = C.wall;
+      if (t === T.PONTE) c = C.wall; else if (t === T.RIO || (t === T.MAR && S.fundo && S.fundo[i] > MAR_RASO)) c = C.deep;
       d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255;
     }
     mc.putImageData(img, 0, 0);
@@ -8523,7 +8634,7 @@
   function drawChunk(z, cx, cy) {
     const tl = S.tiles, layer = z * W * H, u = tp / 16, dummy = [];
     for (let y = cy * CH, ye = Math.min(H, y + CH); y < ye; y++) for (let x = cx * CH, xe = Math.min(W, x + CH); x < xe; x++) {
-      const i = layer + y * W + x, t0 = tl[i], t = t0 === T.SOURCE ? T.GRASS : t0, objs = dummy;
+      const i = layer + y * W + x, t0 = tl[i], t = t0 === T.SOURCE ? T.GRASS : t0 === T.MAR || t0 === T.RIO || t0 === T.PONTE ? T.VALA : t0, objs = dummy;
       const sx = (x - cx * CH) * tp, sy = (y - cy * CH) * tp;
       const v = (x * 7 + y * 13) & 3;
         if (!tileArt(t, x, y, z, sx, sy, v, objs)) {
@@ -8593,7 +8704,7 @@
   // Ficam guardados no save (S.road): 1 = terra, 2 = calçamento de pedra perto do começo.
   function makeRoads() {
     const road = new Uint8Array(W * H), tl = S.tiles, nz = makeNoise(S.seed + 314), rnd = mulberry32(S.seed + 313);
-    const blocked = i => { const t = tl[i]; return t === T.SOURCE || t === T.VALA || t === T.HOLE || t === T.WALL || t === T.GATE || S.water[i] > 0; };
+    const blocked = i => { const t = tl[i]; if (t === T.PONTE) return false; return t === T.SOURCE || t === T.VALA || t === T.HOLE || t === T.WALL || t === T.GATE || t === T.MAR || t === T.RIO || S.water[i] > 0; };
     const centers = [];
     for (let reg = 0; reg < RCOLS * RROWS; reg++) {
       const [rx, ry] = regionOrigin(reg);
@@ -8619,7 +8730,7 @@
       const s0 = sy * W + sx, goal = ty * W + tx;
       g[s0] = 0; came[s0] = -1; push(0, s0);
       let found = false, steps = 0;
-      while (heap.length && steps++ < 400000) {
+      while (heap.length && steps++ < 1500000) {
         const [, i] = pop();
         if (closed[i]) continue;
         closed[i] = 1;
@@ -8642,7 +8753,7 @@
       if (!found) continue;
       for (let i = goal; i >= 0; i = came[i]) {
         const x = i % W, y = (i - x) / W;
-        if (S.builds.length && buildBlocks(x + 0.5, y + 0.5)) continue;
+        if ((S.builds.length && buildBlocks(x + 0.5, y + 0.5)) || tl[i] === T.PONTE) continue;
         road[i] = Math.hypot(x - SPAWN.x, y - SPAWN.y) < 24 ? 2 : 1;
         const t = tl[i]; if (t === T.TREE || t === T.SAPLING || t === T.ROCK) tl[i] = T.GRASS;
         if (i === s0) break;
@@ -8651,6 +8762,29 @@
     S.road = road; roadVer++;
   }
 
+  // água funda (rios e mar longe da praia) mais escura; pontes de tábuas com corrimão
+  function desenharFundoPontes(x0, y0, x1, y1, camX, camY) {
+    const tl = S.tiles, f = S.fundo, ax = S.aux;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const k = y * W + x, t = tl[k];
+      if (t !== T.RIO && t !== T.MAR && t !== T.PONTE) continue;
+      const sx = x * tp - camX, sy = y * tp - camY;
+      if (t === T.RIO || (t === T.MAR && f[k] > MAR_RASO)) { ctx.fillStyle = f[k] > MAR_RASO + 3 || t === T.RIO ? 'rgba(6,28,72,0.42)' : 'rgba(6,28,72,0.3)'; ctx.fillRect(sx, sy, tp, tp); continue; }
+      if (t === T.MAR) {
+        if (f[k] === MAR_RASO && (f[k + 1] > MAR_RASO || f[k - 1] > MAR_RASO || f[k + W] > MAR_RASO || f[k - W] > MAR_RASO)) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(sx, sy + tp * 0.45, tp, tp * 0.1); }   // espuma: daqui para lá é fundo
+        continue;
+      }
+      const vert = ax[k] !== 2, u = tp / 16;
+      ctx.fillStyle = '#6b4424'; ctx.fillRect(sx, sy, tp, tp);
+      for (let q = 0; q < 4; q++) {
+        ctx.fillStyle = (x + y + q) % 2 ? '#9a6a3c' : '#8a5a32';
+        if (vert) ctx.fillRect(sx + u * 0.5, sy + q * 4 * u + u * 0.5, tp - u, 3 * u); else ctx.fillRect(sx + q * 4 * u + u * 0.5, sy + u * 0.5, 3 * u, tp - u);
+      }
+      ctx.fillStyle = '#3d2412';
+      if (vert) { if (tl[k - 1] !== T.PONTE) ctx.fillRect(sx, sy, 2 * u, tp); if (tl[k + 1] !== T.PONTE) ctx.fillRect(sx + tp - 2 * u, sy, 2 * u, tp); }
+      else { if (tl[k - W] !== T.PONTE) ctx.fillRect(sx, sy, tp, 2 * u); if (tl[k + W] !== T.PONTE) ctx.fillRect(sx, sy + tp - 2 * u, tp, 2 * u); }
+    }
+  }
   // ================= Chão mais bonito (desenhado só uma vez em cada pedaço guardado) =================
   const hsh = (x, y) => { let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return (h ^ (h >>> 16)) >>> 0; };
   // o bloco de chão é girado e espelhado conforme a posição, para não ficar com cara de repetido
@@ -8819,6 +8953,7 @@
         }
       }
       drawWaterAll(wet, z, now, camX, camY);
+      if (z === 0 && S.fundo) desenharFundoPontes(x0, y0, x1, y1, camX, camY);
       for (let k = 0; k < springs.length; k += 2) drawObj('spring', springs[k] + tp / 2, springs[k + 1] + tp * 0.98, tp * 1.05);
     } else
     for (let y = y0; y <= y1; y++) {
@@ -9121,6 +9256,7 @@
       } else pushT = Math.min(0, pushT + dt);
       walkPhase += dt * 12;
     } else pushT = Math.min(0, pushT + dt);
+    afogarTick(dt);
     if (actHeld && cooldown <= 0 && !openSheet) { try { useTool(); } catch (e) { actHeld = false; cooldown = 0.5; console.error(e); } }   // um erro numa ferramenta não pode parar o jogo
 
     accWater += dt; accFarm += dt; accSave += dt; accSpawn += dt; accHud += dt;
@@ -9196,6 +9332,7 @@
     S = state;
     S.animals = [];
     S.mobs = [];
+    prepararAgua(S);
     if (!S.camps || !S.camps.length) makeCamps();
     if (!S.road) makeRoads();
     if (!online()) mundoCarregar();
@@ -10079,6 +10216,7 @@
       toast('Já tem muro aí. Para trocar, remova antes (Construir → Remover).', 'warn'); return;
     }
     if (!(t === T.GRASS || t === T.TILLED)) { if (t === T.TREE || t === T.SAPLING || t === T.ROCK) toast('Derrube as árvores e pedras antes', 'warn'); return; }
+    if (naPonte(x, y)) { actHeld = false; toast('Não dá para fechar a ponte nem a entrada dela', 'warn'); return; }
     if (playerInTile(x, y) && !gate) return;
     const prob = terrasProblema(x, y, 1, 1);
     if (prob) { actHeld = false; cooldown = 0.6; toast(prob, 'warn', 3500); return; }
@@ -10191,6 +10329,7 @@
     if (S.p.z !== 0 || interior) { toast('Fique na superfície, do lado de fora', 'warn'); return; }
     if (meusTerrenos().length >= TERRENO_MAX) { toast(`Você já tem ${TERRENO_MAX} terrenos`, 'warn'); return; }
     if (S.porto && Math.hypot(x - S.porto.x, y - S.porto.y) < TERRENO_R + 8) { toast('Muito perto do porto: ande um pouco mais', 'warn'); return; }
+    { const t = S.tiles[I(x, y, 0)]; if (t === T.MAR || t === T.RIO || t === T.PONTE) { toast('Fique em terra firme para comprar', 'warn'); return; } }
     if (S.coins < TERRENO_PRECO) { toast(`Um terreno custa ${TERRENO_PRECO.toLocaleString('pt-BR')} moedas`, 'warn'); return; }
     try { await NET.terrenoComprar(x, y); } catch (e) { toast(e.message, 'warn', 4000); return; }
     S.coins -= TERRENO_PRECO; sfx('moeda'); invDirty = true; save(true);
@@ -11125,6 +11264,7 @@
       showChars(true); save();
       if (oldSaveFound) toast('O mapa ficou 6 vezes maior, com biomas novos: um mundo novo foi criado.', 'gold', 6000);
     } else toast(NET.user && NET.profile ? `Bem-vindo de volta, ${NET.profile.username}` : 'Bem-vindo de volta');
+    if (S.mapaNovo) { const m = S.mapaNovo; delete S.mapaNovo; setTimeout(() => toast(`O mapa ficou 4 vezes maior, com mar e rios.${m.kits ? ` O que você tinha construído virou ${m.kits} ${m.kits === 1 ? 'kit' : 'kits'} em Construir.` : ''}`, 'gold', 9000), 2500); save(true); }
     if (S.char && mundoUnico() && !modoClas) viajar();   // com conta: entra direto no mundo de todos
     if (!NET.enabled) requestAnimationFrame(frame);
   }
