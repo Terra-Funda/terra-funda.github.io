@@ -638,7 +638,7 @@
       npcs: S.npcs.map(n => ({ id: n.id, x: n.x, y: n.y })),
       home: S.home, homeReadyAt: S.homeReadyAt, deposits: S.deposits, char: S.char, skins: S.skins, skin: S.skin, skinCor: S.skinCor,
       tirado: S.tirado, murosV2: true, wmat: toB64(rle(S.wmat)), builds: S.builds, kit: S.kit, sel: S.sel, dur: S.dur, broken: S.broken,
-      hp: S.hp, wxp: S.wxp, wbless: S.wbless, camps: S.camps, mundo: NET.enabled ? undefined : MUNDO, presentes: S.presentes, porto: S.porto, migrado: S.migrado || undefined, buildsAntigos: S.buildsAntigos, fugPegos: S.fugPegos, fugVisto: S.fugVisto, vilaEstado: S.vilaEstado, aura: S.aura, playMs: S.playMs, morte: S.morte, bichoMorto: S.bichoMorto,
+      hp: S.hp, wxp: S.wxp, wbless: S.wbless, camps: S.camps, mundo: NET.enabled ? undefined : MUNDO, presentes: S.presentes, porto: S.porto, casaTerras: S.casaTerras || undefined, migrado: S.migrado || undefined, buildsAntigos: S.buildsAntigos, fugPegos: S.fugPegos, fugVisto: S.fugVisto, vilaEstado: S.vilaEstado, aura: S.aura, playMs: S.playMs, morte: S.morte, bichoMorto: S.bichoMorto,
       bots: S.bots.map(b => ({ x: b.x, y: b.y, hx: b.hx, hy: b.hy, store: b.store, t: b.t, tipo: b.tipo })),
     };
   }
@@ -683,7 +683,7 @@
       s.homeReadyAt = d.homeReadyAt || 0;
       if (!redim) s.deposits = Array.isArray(d.deposits) ? d.deposits : [];
       s.char = CHARACTERS.some(c => c.id === d.char) ? d.char : 'menino';
-      if (!redim && d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {};
+      if (!redim && d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (d.casaTerras && isFinite(d.casaTerras.x) && isFinite(d.casaTerras.y)) s.casaTerras = { x: +d.casaTerras.x, y: +d.casaTerras.y }; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {};
       { // skins antigas que saíram do jogo: devolve as moedas
         const fora = s.skins.filter(id => !SKINS.some(k => k.id === id));
         if (fora.length) { const PRECO_ANTIGO = {"guarda_azul":1400,"mecanico_vermelho":1400,"cacadora":2800,"policial":2800,"saqueador":2800,"pirata":3500,"rei_mascarado":3500,"samurai":6300,"pistoleira":6300,"cowboy_caveira":6300,"princesa":6300,"ceifador":8400,"exploradora":1400,"arqueiro_mata":2800,"arqueira_mata":2800,"guerreiro_tribal":3500,"sombra_tatica":6300,"carrasco":6300,"cacique":12600,"ciberpiloto":12600,"espectro":14000,"guardiao_cristal":17500,"rei_dourado":17500,"raposa":20000,"elfo_vermelho":20000,"elfo_verde":20000,
@@ -2244,7 +2244,7 @@
       actHeld = false; toast('Nas Terras dos Clãs não dá para caçar. Compre recursos no Mercado (Menu).', 'warn', 3500); return;
     }
     if (modoClas && tool === 'enxada' && !noMeuTerreno(x, y)) {
-      actHeld = false; toast('Nas Terras, plante no seu terreno (Construir → Comprar terreno aqui)', 'warn', 3500); return;
+      actHeld = false; toast('Para plantar, compre um terreno: abra Construir e toque em Comprar terreno aqui (fica onde você estiver)', 'warn', 4000); return;
     }
     if (!toolUsable(tool)) {
       actHeld = false;
@@ -6267,12 +6267,13 @@
 
   function toast(msg, kind = '', ms = 2200) {
     const box = $('toasts');
+    for (const v of box.children) if (v.textContent === msg) { clearTimeout(v._fim); v._fim = setTimeout(() => v.remove(), ms); return; }   // a mesma mensagem não se repete
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
     el.textContent = msg;
     box.append(el);
     while (box.children.length > 3) box.firstChild.remove();
-    setTimeout(() => el.remove(), ms);
+    el._fim = setTimeout(() => el.remove(), ms);
   }
 
   // Painéis
@@ -7632,7 +7633,18 @@
   $('btn-home').addEventListener('click', () => goHome());
   // o nome da ferramenta no meio da tela abre o modo construção
   $('toolname').addEventListener('click', () => { S.tool = TOOLS.findIndex(t => t.id === 'muro'); invDirty = true; showSheet('sheet-build'); });
-  $('btn-sethome').addEventListener('click', () => { closeSheet(); if (modoClas) { toast(mundoUnico() ? 'Sua casa é o porto: a volta para casa leva até ele' : 'Nas Terras dos Clãs a sua casa é o porto', 'warn'); return; } setHome(); });
+  $('btn-sethome').addEventListener('click', () => {
+    closeSheet();
+    if (modoClas && mundoUnico()) {   // mundo de todos: a casa fica no seu terreno ou na base do seu clã
+      const x = Math.floor(S.p.x), y = Math.floor(S.p.y);
+      if (S.p.z !== 0 || interior) { toast('Defina a casa na superfície, do lado de fora', 'warn'); return; }
+      if (!noMeuTerreno(x, y)) { toast('Defina a casa dentro do seu terreno ou da base do seu clã', 'warn', 3500); return; }
+      S.home = { x: x + 0.5, y: y + 0.5 }; if (S_casa) S_casa.casaTerras = { x: x + 0.5, y: y + 0.5 };
+      toast('Casa definida aqui: a volta para casa e quem cair acordam neste lugar', 'leaf', 3500); save(true); return;
+    }
+    if (modoClas) { toast('Nas Terras dos Clãs a sua casa é o porto', 'warn'); return; }
+    setHome();
+  });
   $('btn-menu').addEventListener('click', () => showSheet('sheet-menu'));
   $('btn-help').addEventListener('click', () => showSheet('sheet-help'));
   $('btn-char').addEventListener('click', () => showChars(false));
@@ -9786,6 +9798,7 @@
     if (NET.claChat) NET.claChat(d ? d.id : null);
     $('ctab-cla').hidden = !d;
     if (!d && CHAT.tab === 'cla') CHAT.tab = 'todos';
+    if (modoClas && TER.mascara) terrasMascara();   // a base do clã volta a valer como sua
   }
   async function renderCla() {
     const body = $('cla-body');
@@ -10058,7 +10071,8 @@
         for (const k of LEVA) t[k] = S_casa[k];
         modoClas = true;
         garantirPorto(t);
-        t.home = { x: t.porto.x - 1.2, y: t.porto.y + 1.5 };
+        const ct = mundoUnico() && S_casa.casaTerras, ctOk = ct && ct.x > 2 && ct.y > 2 && ct.x < W - 3 && ct.y < H - 3;
+        t.home = ctOk ? { x: ct.x, y: ct.y } : { x: t.porto.x - 1.2, y: t.porto.y + 1.5 };   // casa no seu terreno (se definiu) ou no porto
         t.p = { x: t.home.x, y: t.home.y, z: 0, dir: 3 };
         start(t);
         terrasLigar();
@@ -10317,6 +10331,7 @@
     if (!modoClas || !online() || !NET.terrasEstado || TER.carregando) return;
     TER.carregando = true;
     try {
+      if (!CLA.dados && NET.claMeu) await claCarregar().catch(() => {});   // sem o clã carregado, a base parece de outro
       const e = await NET.terrasEstado();
       if (!modoClas || !e) return;
       TER.desvio = (+e.agora || Date.now()) - Date.now();
@@ -10419,7 +10434,9 @@
     if (mode === 'mover') { toast('Nas Terras não dá para mover: remova e coloque de novo', 'warn'); return; }
     if (!isWallT(t)) { toast('Fique de frente para um muro', 'warn'); return; }
     const id = TER.obraEm.get(chaveXY(x, y)), o = id && TER.obras.get(id);
-    if (!podeMexer(o)) { toast(o && o.cla == null ? 'Esse muro não é seu' : 'Esse muro não é do seu clã', 'warn'); return; }
+    if (!podeMexer(o) && o && o.cla != null && !CLA.dados && online()) { await claCarregar().catch(() => {}); }   // o clã ainda não tinha carregado
+    if (!podeMexer(o) && o && o.cla != null && !CLA.dados) { toast('Carregando o seu clã… tente de novo em instantes', 'warn'); return; }
+    if (!podeMexer(o)) { toast(o && o.cla != null ? 'Esse muro é de outro clã' : 'Esse muro não é seu', 'warn'); return; }
     if (mode === 'remover') {
       try { await NET.terrasRemover(+id); } catch (e) { toast(e.message, 'warn', 3500); return; }
       obraTirar(o); TER.obras.delete(id);
