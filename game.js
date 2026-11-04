@@ -2576,8 +2576,9 @@
     };
     row.append(mk('musica', 'Música'), mk('sons', 'Sons'));
     const g = document.createElement('button'); g.type = 'button'; g.className = 'btn';
-    const updG = () => { g.textContent = `Gráficos: ${GRAF.alta ? 'alta qualidade' : 'leve'}`; };
-    g.addEventListener('click', () => { GRAF.alta = !GRAF.alta; try { localStorage.setItem('terra-funda-graficos', JSON.stringify(GRAF)); } catch (e) {} updG(); resize(); });
+    // três níveis: leve → alta qualidade → econômico (metade dos pixels e 30 quadros por segundo: esquenta menos o celular)
+    const updG = () => { g.textContent = `Gráficos: ${GRAF.alta ? 'alta qualidade' : GRAF.eco ? 'econômico' : 'leve'}`; };
+    g.addEventListener('click', () => { if (GRAF.alta) { GRAF.alta = false; GRAF.eco = true; } else if (GRAF.eco) GRAF.eco = false; else GRAF.alta = true; try { localStorage.setItem('terra-funda-graficos', JSON.stringify(GRAF)); } catch (e) {} updG(); resize(); });
     updG(); row.append(g);
     const help = document.getElementById('btn-help');
     list.insertBefore(row, help);
@@ -7462,7 +7463,7 @@
   // refazer tudo (e apagar os pedaços de chão já desenhados) a cada um deles deixava o jogo travando
   let redims = 0, tamAnt = '', cssAnt = 0;
   function resize() {
-    const ndpr = Math.min(window.devicePixelRatio || 1, GRAF.alta ? 2 : 1.5), nvw = canvas.clientWidth, nvh = canvas.clientHeight;
+    const ndpr = Math.min(window.devicePixelRatio || 1, GRAF.alta ? 2 : GRAF.eco ? 1 : 1.5), nvw = canvas.clientWidth, nvh = canvas.clientHeight;
     const chave = ndpr + ':' + nvw + ':' + nvh;
     if (chave === tamAnt) return;
     tamAnt = chave; redims++;
@@ -9128,7 +9129,9 @@
   // ?fps no endereço: mostra quadros por segundo e quanto tempo o jogo gasta em cada quadro (para achar travamentos)
   const DIAG = /[?&]fps\b/.test(location.search) ? { n: 0, t0: performance.now(), up: 0, rd: 0, pior: 0, txt: '', eng: [], upMax: 0, rdMax: 0, longas: [] } : null;
   if (DIAG && window.PerformanceObserver) try { new PerformanceObserver(l => { for (const e of l.getEntries()) DIAG.longas.push([performance.now(), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: false }); } catch (e) {}
+  let quadroPar = false;
   function frame(now) {
+    if (GRAF.eco) { quadroPar = !quadroPar; if (quadroPar && now - last < 25) { requestAnimationFrame(frame); return; } }   // econômico: 30 quadros por segundo
     escNovos = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
     const passo = now - last;
@@ -10843,7 +10846,7 @@
   $('btn-staff').addEventListener('click', () => { closeSheet(); openStaff(); });
 
   // ?teste na URL: expõe o estado para testes automáticos
-  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; } };
+  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, get esc() { return escCache; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; } };
 
   async function boot() {
     buildSprites();
