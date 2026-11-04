@@ -5865,7 +5865,7 @@
     c = document.createElement('canvas'); c.width = W1; c.height = H1;
     const g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(art, r[0], r[1], r[2], r[3], 0, 0, W1, H1);
-    if (escCache.size > 900) escCache.delete(escCache.keys().next().value);
+    if (escCache.size > 400) escCache.delete(escCache.keys().next().value);   // cada um é uma imagem na memória do aparelho
     escCache.set(key, c);
     return c;
   }
@@ -9126,7 +9126,8 @@
   }
 
   // ?fps no endereço: mostra quadros por segundo e quanto tempo o jogo gasta em cada quadro (para achar travamentos)
-  const DIAG = /[?&]fps\b/.test(location.search) ? { n: 0, t0: performance.now(), up: 0, rd: 0, pior: 0, txt: '' } : null;
+  const DIAG = /[?&]fps\b/.test(location.search) ? { n: 0, t0: performance.now(), up: 0, rd: 0, pior: 0, txt: '', eng: [], upMax: 0, rdMax: 0, longas: [] } : null;
+  if (DIAG && window.PerformanceObserver) try { new PerformanceObserver(l => { for (const e of l.getEntries()) DIAG.longas.push([performance.now(), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: false }); } catch (e) {}
   function frame(now) {
     escNovos = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -9135,8 +9136,17 @@
     if (!DIAG) { update(dt, now); render(now); requestAnimationFrame(frame); return; }
     const a = performance.now(); update(dt, now); const b = performance.now(); render(now); const c = performance.now();
     DIAG.n++; DIAG.up += b - a; DIAG.rd += c - b; DIAG.pior = Math.max(DIAG.pior, passo);
+    DIAG.upMax = Math.max(DIAG.upMax, b - a); DIAG.rdMax = Math.max(DIAG.rdMax, c - b);
+    if (passo > 100 && document.visibilityState === 'visible') DIAG.eng.push([c, Math.round(passo), Math.round(b - a), Math.round(c - b)]);   // engasgo: quadro demorou
     if (c - DIAG.t0 > 1000) {
-      DIAG.txt = `${Math.round(DIAG.n * 1000 / (c - DIAG.t0))} fps · lógica ${(DIAG.up / DIAG.n).toFixed(1)} ms · desenho ${(DIAG.rd / DIAG.n).toFixed(1)} ms · pior ${Math.round(DIAG.pior)} ms · tela ${canvas.width}×${canvas.height} · redimensionou ${redims}× · pedaços ${chunkCache.size} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
+      DIAG.eng = DIAG.eng.filter(e => c - e[0] < 60000); DIAG.longas = DIAG.longas.filter(e => c - e[0] < 60000);
+      const ult = DIAG.eng[DIAG.eng.length - 1], mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB' : '?';
+      DIAG.txt = `${Math.round(DIAG.n * 1000 / (c - DIAG.t0))} fps · lógica ${(DIAG.up / DIAG.n).toFixed(1)} ms (máx ${Math.round(DIAG.upMax)}) · desenho ${(DIAG.rd / DIAG.n).toFixed(1)} ms (máx ${Math.round(DIAG.rdMax)}) · pior ${Math.round(DIAG.pior)} ms`
+        + ` · engasgos/min ${DIAG.eng.length}${ult ? ` (últ ${ult[1]}ms há ${Math.round((c - ult[0]) / 1000)}s)` : ''}`
+        + (ult ? ` · no engasgo: lóg ${ult[2]} des ${ult[3]} ms` : '')
+        + ` · tarefas longas/min ${DIAG.longas.length}${DIAG.longas.length ? ` (maior ${Math.max(...DIAG.longas.map(e => e[1]))}ms)` : ''} · memória ${mem} · sprites ${escCache.size}`;
+      DIAG.txt += ` · tela ${canvas.width}×${canvas.height} · redimensionou ${redims}× · pedaços ${chunkCache.size} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
+      DIAG.upMax = 0; DIAG.rdMax = 0;
       DIAG.n = 0; DIAG.up = 0; DIAG.rd = 0; DIAG.pior = 0; DIAG.t0 = c;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.textAlign = 'left';
