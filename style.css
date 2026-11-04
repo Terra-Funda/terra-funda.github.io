@@ -414,3 +414,50 @@ kbd {
 #equip-body .cla-linha .field, #admin-staff .cla-linha .field { flex: 1; min-width: 0; }
 #admin-staff .cla-linha { flex-wrap: wrap; }
 .field textarea { resize: vertical; font: inherit; }
+
+/* ===== Tela cheia e layout para cada aparelho ===== */
+@supports (height: 100dvh) { html, body { height: 100dvh; } }
+.btn-tela { min-width: 38px; padding: 7px 9px; font-size: 16px; line-height: 1; }
+/* telas estreitas (celular em pé): a barra de ferramentas pode rolar de lado se não couber */
+.hotbar { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.hotbar::-webkit-scrollbar { display: none; }
+.hotbar .slot { flex: none; }
+/* celular deitado (tela baixa): controles nas bordas, ferramentas no meio, tudo mais compacto */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud { padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
+  .chip { font-size: 14px; padding: 4px 8px; }
+  #depth { font-size: 11px; }
+  .btn { padding: 5px 9px; font-size: 14px; }
+  #toasts { top: calc(64px + env(safe-area-inset-top, 0px)); }
+  .toast { font-size: 13px; padding: 4px 10px; }
+  .bottom { gap: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .touch {
+    position: absolute; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    left: max(14px, env(safe-area-inset-left, 0px)); right: max(14px, env(safe-area-inset-right, 0px)); width: auto;
+  }
+  .dpad { width: 126px; height: 126px; }
+  .d { width: 42px; height: 42px; }
+  .d.up, .d.down { left: 42px; } .d.left, .d.right { top: 42px; }
+  .act { width: 58px; height: 58px; font-size: 13px; }
+  .act-a { width: 74px; height: 74px; font-size: 15px; }
+  .bottom:has(.touch:not([hidden])) .toolrow, .bottom:has(.touch:not([hidden])) .hotbar { max-width: calc(100% - 2 * (150px + env(safe-area-inset-left, 0px))); }
+  .slot { width: 44px; height: 44px; }
+  .slot canvas { width: 28px; height: 28px; }
+  .hotbar { padding: 4px; gap: 4px; }
+  .keys { display: none; }
+  .door-btn { bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }
+  .edit-bar { bottom: calc(118px + env(safe-area-inset-bottom, 0px)) !important; }
+  .decor-btn { bottom: calc(118px + env(safe-area-inset-bottom, 0px)) !important; }
+  .sheet { align-items: center; }
+  .panel { max-height: 96%; border-radius: 12px; border-bottom: 2px solid var(--line); width: min(620px, 94%); padding-top: 10px; }
+  .chat-bar { top: calc(54px + env(safe-area-inset-top, 0px)) !important; padding: 2px 9px; font-size: 12px; }
+}
+/* aviso para instalar como aplicativo (iPhone) */
+.ios-dica { line-height: 1.5; }
+.clock > span { white-space: nowrap; }
+@media (max-width: 420px) {
+  .hud { gap: 6px; padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+  .hud-actions { gap: 4px; }
+  .hud-actions .btn { padding: 6px 8px; }
+  .clock { font-size: 14px; padding: 4px 7px; }
+}

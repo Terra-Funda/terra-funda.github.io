@@ -7240,6 +7240,43 @@
   $('btn-f').addEventListener('click', () => upDown());
 
   function enableTouchUi() { $('touch').hidden = false; $('keys').hidden = true; }
+  // ---- Tela cheia e instalar como aplicativo (manifest.webmanifest)
+  const telaCheia = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  const ehIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const comoApp = () => (window.matchMedia && (window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches)) || navigator.standalone === true;
+  function dicaIOS() {
+    toast('No iPhone: toque em Compartilhar (□↑) e depois em "Adicionar à Tela de Início". O jogo abre como aplicativo, em tela cheia.', 'gold', 9000);
+  }
+  async function alternarTela() {
+    try {
+      if (telaCheia()) { await (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) { if (ehIOS) dicaIOS(); else toast('Este navegador não deixa usar tela cheia', 'warn'); return; }
+      await req.call(el, { navigationUI: 'hide' });
+    } catch (e) { if (ehIOS) dicaIOS(); else toast('Não deu para entrar em tela cheia', 'warn'); }
+  }
+  function marcarTela() {
+    const on = telaCheia();
+    $('btn-tela').textContent = on ? '✕' : '⛶'; $('btn-tela').title = on ? 'Sair da tela cheia' : 'Tela cheia';
+    $('btn-tela').hidden = comoApp() && !on;   // aberto como aplicativo: já está em tela cheia
+    $('btn-tela2').textContent = on ? 'Sair da tela cheia' : 'Tela cheia';
+    setTimeout(resize, 120);
+  }
+  $('btn-tela').addEventListener('click', alternarTela);
+  $('btn-tela2').addEventListener('click', () => { closeSheet(); alternarTela(); });
+  document.addEventListener('fullscreenchange', marcarTela); document.addEventListener('webkitfullscreenchange', marcarTela);
+  let pedidoInstalar = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pedidoInstalar = e; $('btn-instalar').hidden = false; });
+  window.addEventListener('appinstalled', () => { pedidoInstalar = null; $('btn-instalar').hidden = true; toast('Terra Funda instalado: abra pelo ícone na tela inicial', 'gold', 6000); });
+  $('btn-instalar').hidden = comoApp();
+  $('btn-instalar').addEventListener('click', async () => {
+    closeSheet();
+    if (pedidoInstalar) { pedidoInstalar.prompt(); try { await pedidoInstalar.userChoice; } catch (e) {} pedidoInstalar = null; return; }
+    if (ehIOS) { dicaIOS(); return; }
+    toast('No menu do navegador (⋮), toque em "Instalar app" ou "Adicionar à tela inicial".', 'gold', 8000);
+  });
+  window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+  marcarTela();
   if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) enableTouchUi();
   window.addEventListener('touchstart', enableTouchUi, { once: true, passive: true });
 
@@ -8037,7 +8074,8 @@
 
   // Setas na borda da tela apontando para compradores fora de vista
   function drawNpcArrows(camX, camY, W2, H2) {
-    const top = 78 * dpr, bottom = H2 - ($('touch').hidden ? 150 : 270) * dpr, side = 18 * dpr;
+    const baixo = Math.max(document.querySelector('.bottom').offsetHeight, $('touch').hidden ? 0 : $('touch').offsetHeight + 10);
+    const top = 78 * dpr, bottom = H2 - (baixo + 14) * dpr, side = 18 * dpr;
     const px0 = S.p.x * tp - camX, py0 = S.p.y * tp - camY;
     const alvos = S.npcs.map(n => ({ x: n.x, y: n.y, cor: n.def.cor, letra: n.def.nome.replace('Dona ', '')[0] }));
     if (S.porto && S.p.z === 0) alvos.push({ x: S.porto.x + 2.5, y: S.porto.y + 1.5, cor: '#5fb3ff', letra: '⛵' });   // o porto também
