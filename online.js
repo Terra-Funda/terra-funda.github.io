@@ -1,0 +1,279 @@
+/*
+ * Terra Funda — contas, salvamento na nuvem e moderação (Supabase).
+ * Sem configuração em config.js, o jogo roda só no navegador e este módulo fica desligado.
+ * Toda permissão (admin, moderador, banimento) é conferida no servidor pelas regras de supabase/schema.sql.
+ */
+(() => {
+  'use strict';
+  const cfg = window.TERRA_CONFIG || {};
+  const enabled = !!(cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase && window.supabase.createClient);
+  const sb = enabled ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey) : null;
+
+  const T = {
+    enabled,
+    user: null,
+    profile: null,
+    get role() { return this.profile ? this.profile.role : 'player'; },
+    get isAdmin() { return this.role === 'admin'; },
+    get isStaff() { return this.role === 'admin' || this.role === 'moderator'; },
+    get banned() {
+      const b = this.profile && this.profile.banned_until;
+      return !!b && (b === 'infinity' || new Date(b) > new Date());
+    },
+  };
+
+  async function fetchProfile() {
+    if (!T.user) { T.profile = null; return null; }
+    T.profileError = '';
+    // primeiro pela função do servidor (não depende das permissões da tabela); depois direto na tabela
+    let r = await sb.rpc('my_profile');
+    let row = !r.error && Array.isArray(r.data) ? r.data[0] : (!r.error && r.data && r.data.id ? r.data : null);
+    if (!row) {
+      const q = await sb.from('profiles').select('*').eq('id', T.user.id).maybeSingle();
+      row = q.data || null;
+      if (!row) T.profileError = (q.error && q.error.message) || (r.error && r.error.message) || 'perfil não encontrado';
+    }
+    T.profile = row;
+    return T.profile;
+  }
+
+  // Link de "esqueci minha senha": o Supabase volta para o jogo já logado e avisa que é recuperação
+  T.recovery = /type=recovery/.test(location.hash + location.search);
+  if (sb) sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') T.recovery = true; });
+
+  T.init = async function () {
+    if (!enabled) return false;
+    const { data } = await sb.auth.getSession();
+    T.user = data.session ? data.session.user : null;
+    if (T.user) await fetchProfile();
+    return !!T.user;
+  };
+
+  const msg = e => {
+    const m = (e && e.message) || String(e);
+    if (/Invalid login/i.test(m)) return 'E-mail ou senha incorretos.';
+    if (/already registered|already exists/i.test(m)) return 'Esse e-mail já tem conta. Use Entrar.';
+    if (/duplicate key.*username|profiles_username_key|Database error saving new user/i.test(m)) return 'Esse nome de jogador já está em uso.';
+    if (/Password should be/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
+    if (/Esse é o seu código/.test(m)) return 'Esse é o seu próprio código.';
+    if (/Jogador não encontrado/.test(m)) return 'Não achei nenhum jogador com esse código.';
+    if (/rate limit|security purposes/i.test(m)) return 'Muitas tentativas. Espere um minuto e tente de novo.';
+    if (/same.*password|different from the old/i.test(m)) return 'A nova senha precisa ser diferente da antiga.';
+    if (/Email not confirmed/i.test(m)) return 'Confirme seu e-mail pelo link que enviamos e depois entre.';
+    return m;
+  };
+
+  T.signUp = async function (email, password, username) {
+    username = (username || '').trim();
+    if (!/^[A-Za-z0-9_À-ÿ]{3,20}$/.test(username)) throw new Error('Nome de jogador: 3 a 20 letras, números ou _.');
+    const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username } } });
+    if (error) throw new Error(msg(error));
+    T.user = data.user && data.session ? data.user : null;
+    if (T.user) await fetchProfile();
+    return { needsConfirm: !data.session };
+  };
+
+  T.signIn = async function (email, password) {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(msg(error));
+    T.user = data.user;
+    await fetchProfile();
+  };
+
+  T.resetPassword = async function (email) {
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    if (error) throw new Error(msg(error));
+  };
+  T.updatePassword = async function (password) {
+    const { error } = await sb.auth.updateUser({ password });
+    if (error) throw new Error(msg(error));
+    T.recovery = false;
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  };
+
+  T.signOut = async function () {
+    if (sb) await sb.auth.signOut();
+    T.user = null; T.profile = null;
+  };
+
+  // ---- Salvamento ----
+  T.loadSave = async function () {
+    if (!T.user) return null;
+    const { data, error } = await sb.from('saves').select('data, updated_at').eq('user_id', T.user.id).maybeSingle();
+    if (error || !data) return null;
+    return { data: data.data, updatedAt: Date.parse(data.updated_at) };
+  };
+  let pending = null, timer = null, inflight = false;
+  async function flush() {
+    timer = null;
+    if (!pending || !T.user || inflight || T.banned) return;
+    const body = pending; pending = null; inflight = true;
+    try {
+      await sb.from('saves').upsert({ user_id: T.user.id, data: body, updated_at: new Date().toISOString() });
+    } catch (e) { pending = pending || body; }
+    inflight = false;
+  }
+  // grava na nuvem no máximo a cada 20 s (ou já, quando immediate)
+  T.queueSave = function (obj, immediate) {
+    if (!T.user) return;
+    pending = obj;
+    if (immediate) { clearTimeout(timer); flush(); return; }
+    if (!timer) timer = setTimeout(flush, 20000);
+  };
+
+  // ---- Equipe (o servidor recusa se não tiver permissão) ----
+  const rpc = async (fn, args) => {
+    const { data, error } = await sb.rpc(fn, args);
+    if (error) throw new Error(msg(error));
+    return data;
+  };
+  T.listPlayers = busca => rpc('staff_list_players', { busca: busca || '' });
+  T.ban = (target, dias, motivo) => rpc('staff_ban', { target, dias, motivo: motivo || null });
+  T.setRole = (target, novo) => rpc('admin_set_role', { target, novo });
+  T.giveCoins = (target, quantidade) => rpc('admin_give_coins', { target, quantidade });
+  T.giftSkin = (codigo, skin) => rpc('presentear_skin', { codigo, skin });
+  T.bless = (target, arma, nivel, horas) => rpc('admin_bless', { target, arma, nivel, horas });
+  // testadores beta, imunidade e denúncias (supabase/equipe2.sql)
+  T.imunidade = (target, valor) => rpc('admin_imunidade', { target, valor });
+  T.beta = (target, moedas) => rpc('admin_beta', { target, moedas });
+  T.betaReceber = () => rpc('beta_receber', {});
+  T.denunciar = (codigo, motivo, texto) => rpc('denunciar', { p_codigo: codigo, p_motivo: motivo, p_texto: texto });
+  T.denuncias = () => rpc('staff_denuncias', {});
+  T.denunciaResolver = (alvo, status) => rpc('staff_denuncia_resolver', { p_alvo: alvo, p_status: status });
+
+
+  // ---- Chat ao vivo (Supabase Realtime). Nada fica guardado: a mensagem só passa por quem está conectado.
+  // Canais: "tf-geral" (todos) e "tf-dm-<código>" (caixa de cada jogador, para privadas e de amigos).
+  const chat = { onMsg: null, geral: null, caixa: null, cla: null, claId: null, ultimo: 0 };
+  T.chatReady = false;
+  T.chatStart = function (onMsg) {
+    if (!enabled || !T.user || !T.profile || chat.geral) return;
+    chat.onMsg = onMsg;
+    const cfg = { config: { broadcast: { self: false } } };
+    chat.geral = sb.channel('tf-geral', cfg).on('broadcast', { event: 'msg' }, ({ payload }) => onMsg(payload)).subscribe(st => { T.chatReady = st === 'SUBSCRIBED'; });
+    chat.caixa = sb.channel('tf-dm-' + T.profile.codigo, cfg).on('broadcast', { event: 'msg' }, ({ payload }) => onMsg(payload)).subscribe();
+  };
+  const meuNome = () => (T.isAdmin ? 'Equipe' : T.profile.username);   // o administrador continua invisível
+  function enviar(canal, payload) {
+    return new Promise((ok, falha) => {
+      if (canal === 'tf-geral' && chat.geral) { chat.geral.send({ type: 'broadcast', event: 'msg', payload }).then(ok, falha); return; }
+      if (chat.cla && canal === 'tf-cla-' + chat.claId) { chat.cla.send({ type: 'broadcast', event: 'msg', payload }).then(ok, falha); return; }
+      const ch = sb.channel(canal);
+      const t = setTimeout(() => { sb.removeChannel(ch); falha(new Error('Sem conexão com o chat')); }, 8000);
+      ch.subscribe(st => {
+        if (st !== 'SUBSCRIBED') return;
+        ch.send({ type: 'broadcast', event: 'msg', payload }).then(r => { clearTimeout(t); sb.removeChannel(ch); ok(r); }, e => { clearTimeout(t); sb.removeChannel(ch); falha(e); });
+      });
+    });
+  }
+  // tipo: 'todos' | 'privado' | 'amigos'. destinos: códigos TF- (privado) ou lista de amigos
+  T.chatSend = async function (tipo, texto, destinos) {
+    if (!T.user || !T.profile) throw new Error('Entre na sua conta para usar o chat');
+    if (T.banned) throw new Error('Conta suspensa');
+    texto = String(texto || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!texto) return null;
+    const agora = Date.now();
+    if (agora - chat.ultimo < 1500) throw new Error('Espere um pouco antes de mandar outra mensagem');
+    chat.ultimo = agora;
+    const msg = { de: T.profile.codigo, nome: meuNome(), texto, tipo, t: agora, para: tipo === 'privado' ? destinos : undefined, tag: T.isAdmin ? undefined : T.claTag || undefined };
+    if (tipo === 'todos') await enviar('tf-geral', msg);
+    else if (tipo === 'cla') { if (!chat.cla) throw new Error('Você não está em um clã'); await enviar('tf-cla-' + chat.claId, msg); }
+    else for (const c of destinos) await enviar('tf-dm-' + c, msg);
+    return msg;
+  };
+  // ---- Clãs (todas as regras ficam no servidor: supabase/clas.sql)
+  T.claMeu = () => rpc('meu_cla', {});
+  T.claCriar = o => rpc('criar_cla', { p_nome: o.nome, p_tag: o.tag, p_cor: o.cor, p_brasao: o.brasao, p_aberto: o.aberto });
+  T.claEntrar = id => rpc('entrar_cla', { p_cla: id });
+  T.claConvidar = codigo => rpc('convidar_cla', { p_codigo: codigo });
+  T.claRecusar = id => rpc('recusar_convite', { p_cla: id });
+  T.claCancelarConvite = alvo => rpc('cancelar_convite', { p_alvo: alvo });
+  T.claSair = () => rpc('sair_cla', {});
+  T.claExpulsar = alvo => rpc('expulsar_cla', { p_alvo: alvo });
+  T.claPapel = (alvo, papel) => rpc('papel_cla', { p_alvo: alvo, p_papel: papel });
+  T.claEditar = o => rpc('editar_cla', { p_cor: o.cor, p_brasao: o.brasao, p_descricao: o.descricao, p_aberto: o.aberto });
+  T.claDissolver = id => rpc('dissolver_cla', { p_cla: id });
+  T.claConvites = () => rpc('meus_convites', {});
+  T.claListar = busca => rpc('listar_clas', { p_busca: busca || '' });
+  // chat do clã: um canal por clã, trocado quando o jogador entra ou sai
+  T.claTag = '';
+  T.claChat = function (id) {
+    if (!enabled || !chat.onMsg) return;
+    if (chat.cla && chat.claId === id) return;
+    if (chat.cla) { sb.removeChannel(chat.cla); chat.cla = null; chat.claId = null; }
+    if (!id) return;
+    chat.claId = id;
+    chat.cla = sb.channel('tf-cla-' + id, { config: { broadcast: { self: false } } }).on('broadcast', { event: 'msg' }, ({ payload }) => chat.onMsg(Object.assign({}, payload, { tipo: 'cla' }))).subscribe();
+  };
+  // ---- Mercado entre jogadores (regras no servidor: supabase/mercado.sql)
+  T.mercadoListar = item => rpc('mercado_listar', { p_item: item || '' });
+  T.mercadoMeu = () => rpc('mercado_meu', {});
+  T.mercadoAnunciar = (item, qtd, preco, loja) => rpc('mercado_anunciar', { p_item: item, p_qtd: qtd, p_preco: preco, p_loja: loja || null });
+  T.mercadoComprar = id => rpc('mercado_comprar', { p_id: id });
+  T.mercadoComprarQtd = (id, qtd) => rpc('mercado_comprar_qtd', { p_id: id, p_qtd: qtd });   // supabase/mercado3.sql: compra só uma parte
+  T.mercadoCancelar = id => rpc('mercado_cancelar', { p_id: id });
+  T.mercadoRetirar = () => rpc('mercado_retirar', {});
+  // ---- Terras dos Clãs: um canal em tempo real com a posição e o visual de quem está lá
+  const terras = { ch: null };
+  T.terrasEntrar = function (onEvento) {
+    if (!enabled || !T.user) return;
+    T.terrasSair(true);
+    terras.ch = sb.channel('tf-terras-1', { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'p' }, ({ payload }) => onEvento('p', payload))
+      .on('broadcast', { event: 'oi' }, ({ payload }) => onEvento('oi', payload))
+      .on('broadcast', { event: 'sai' }, ({ payload }) => onEvento('sai', payload))
+      .on('broadcast', { event: 't' }, ({ payload }) => onEvento('t', payload))
+      .on('broadcast', { event: 'o' }, ({ payload }) => onEvento('o', payload))
+      .on('broadcast', { event: 'm' }, ({ payload }) => onEvento('m', payload))
+      .on('broadcast', { event: 'mh' }, ({ payload }) => onEvento('mh', payload))
+      .on('broadcast', { event: 'og' }, ({ payload }) => onEvento('og', payload))
+      .on('broadcast', { event: 'rb' }, ({ payload }) => onEvento('rb', payload))
+      .subscribe(st => { if (st === 'SUBSCRIBED') onEvento('ok'); });
+  };
+  T.terrasEnviar = (ev, payload) => { if (terras.ch) terras.ch.send({ type: 'broadcast', event: ev, payload }).catch(() => {}); };
+  T.terrasSair = function (calado) {
+    if (!terras.ch) return;
+    if (!calado && T.profile) T.terrasEnviar('sai', { c: T.profile.codigo });
+    const ch = terras.ch; terras.ch = null;
+    setTimeout(() => sb.removeChannel(ch), 300);
+  };
+  // terreno derrubado, bases e construções dos clãs (regras no servidor: supabase/terras.sql)
+  T.terrasEstado = () => rpc('terras_estado', {});
+  T.terrasLimpar = (x, y) => rpc('terras_limpar', { p_x: x, p_y: y });
+  T.claBaseMarcar = (x, y) => rpc('cla_base_marcar', { p_x: x, p_y: y });
+  T.claBaseAbandonar = () => rpc('cla_base_abandonar', {});
+  T.terrasConstruir = (k, x, y, rot) => rpc('terras_construir', { p_k: k, p_x: x, p_y: y, p_rot: rot || 0 });
+  T.terrasGirar = (id, rot) => rpc('terras_girar', { p_id: id, p_rot: rot });
+  T.terrasRemover = id => rpc('terras_remover', { p_id: id });
+  // guerra (supabase/guerra.sql): golpes em construções de outros clãs, conserto, torre de transmissão e robôs
+  T.terrasGolpear = (id, ferramenta) => rpc('terras_golpear', { p_id: id, p_ferramenta: ferramenta });
+  T.terrasConsertar = id => rpc('terras_consertar', { p_id: id });
+  T.txAbastecer = (petroleo, ferro) => rpc('cla_tx_abastecer', { p_petroleo: petroleo, p_ferro: ferro });
+  T.roboLancar = tipo => rpc('robo_lancar', { p_tipo: tipo });
+  T.roboExplodir = (id, x, y) => rpc('robo_explodir', { p_id: id, p_x: x, p_y: y });
+  T.addFriend = codigo => rpc('adicionar_amigo', { codigo });
+  T.removeFriend = alvo => rpc('remover_amigo', { alvo });
+  T.friends = () => rpc('meus_amigos', {});
+
+
+  // ---- Configuração do mundo feita pelo administrador (áreas seguras, eventos, fugitivo, vilas)
+  T.mundoGet = async function () {
+    const { data, error } = await sb.from('mundo').select('chave, valor');
+    if (error) throw new Error(msg(error));
+    const o = {}; for (const r of data || []) o[r.chave] = r.valor; return o;
+  };
+  T.mundoSet = async function (chave, valor) {
+    const { error } = await sb.from('mundo').upsert({ chave, valor, atualizado: new Date().toISOString() });
+    if (error) throw new Error(msg(error));
+  };
+  T.pegarPresente = (evento, limite) => rpc('pegar_presente', { evento, limite });
+  T.pegarFugitivo = evento => rpc('pegar_fugitivo', { evento });
+  // Aviso da moderação: o texto fica na tabela "mundo" (só o admin escreve lá); pelo chat vai só um sinal
+  // para todos buscarem o aviso no servidor. Assim ninguém consegue falsificar um aviso roxo.
+  T.anunciar = function (chave) {
+    if (!chat.geral) return Promise.resolve();
+    return chat.geral.send({ type: 'broadcast', event: 'msg', payload: { sistema: true, chave: String(chave).slice(0, 20), t: Date.now() } });
+  };
+
+  window.TerraOnline = T;
+})();
