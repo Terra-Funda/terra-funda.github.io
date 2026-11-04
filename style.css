@@ -440,7 +440,7 @@ kbd {
   .d.up, .d.down { left: 42px; } .d.left, .d.right { top: 42px; }
   .act { width: 58px; height: 58px; font-size: 13px; }
   .act-a { width: 74px; height: 74px; font-size: 15px; }
-  .bottom:has(.touch:not([hidden])) .toolrow, .bottom:has(.touch:not([hidden])) .hotbar { max-width: calc(100% - 2 * (150px + env(safe-area-inset-left, 0px))); }
+  body.toque .toolrow, body.toque .hotbar { max-width: calc(100% - 2 * (150px + env(safe-area-inset-left, 0px))); }
   .slot { width: 44px; height: 44px; }
   .slot canvas { width: 28px; height: 28px; }
   .hotbar { padding: 4px; gap: 4px; }

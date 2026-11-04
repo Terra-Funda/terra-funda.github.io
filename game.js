@@ -7250,7 +7250,7 @@
   bindHold($('btn-a'), () => { if (cooldown <= 0) useTool(); actHeld = true; }, () => { actHeld = false; });
   $('btn-f').addEventListener('click', () => upDown());
 
-  function enableTouchUi() { $('touch').hidden = false; $('keys').hidden = true; }
+  function enableTouchUi() { $('touch').hidden = false; $('keys').hidden = true; document.body.classList.add('toque'); }
   // ---- Construir tocando (ou clicando) no lugar: muros e portões vão direto, e arrastando o dedo faz uma fileira;
   // casas e outras construções mostram a prévia no primeiro toque e constroem no segundo toque (ou no Usar)
   const ALCANCE_TOQUE = 10;
@@ -8127,7 +8127,8 @@
 
   // Setas na borda da tela apontando para compradores fora de vista
   function drawNpcArrows(camX, camY, W2, H2) {
-    const baixo = Math.max(document.querySelector('.bottom').offsetHeight, $('touch').hidden ? 0 : $('touch').offsetHeight + 10);
+    if (!drawNpcArrows.ate || performance.now() > drawNpcArrows.ate) { drawNpcArrows.ate = performance.now() + 1000; drawNpcArrows.baixo = Math.max(document.querySelector('.bottom').offsetHeight, $('touch').hidden ? 0 : $('touch').offsetHeight + 10); }
+    const baixo = drawNpcArrows.baixo;
     const top = 78 * dpr, bottom = H2 - (baixo + 14) * dpr, side = 18 * dpr;
     const px0 = S.p.x * tp - camX, py0 = S.p.y * tp - camY;
     const alvos = S.npcs.map(n => ({ x: n.x, y: n.y, cor: n.def.cor, letra: n.def.nome.replace('Dona ', '')[0] }));
@@ -9114,12 +9115,27 @@
     }
   }
 
+  // ?fps no endereço: mostra quadros por segundo e quanto tempo o jogo gasta em cada quadro (para achar travamentos)
+  const DIAG = /[?&]fps\b/.test(location.search) ? { n: 0, t0: performance.now(), up: 0, rd: 0, pior: 0, txt: '' } : null;
   function frame(now) {
     escNovos = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
+    const passo = now - last;
     last = now;
-    update(dt, now);
-    render(now);
+    if (!DIAG) { update(dt, now); render(now); requestAnimationFrame(frame); return; }
+    const a = performance.now(); update(dt, now); const b = performance.now(); render(now); const c = performance.now();
+    DIAG.n++; DIAG.up += b - a; DIAG.rd += c - b; DIAG.pior = Math.max(DIAG.pior, passo);
+    if (c - DIAG.t0 > 1000) {
+      DIAG.txt = `${Math.round(DIAG.n * 1000 / (c - DIAG.t0))} fps · lógica ${(DIAG.up / DIAG.n).toFixed(1)} ms · desenho ${(DIAG.rd / DIAG.n).toFixed(1)} ms · pior ${Math.round(DIAG.pior)} ms · tela ${canvas.width}×${canvas.height} · atlas ${art ? art.naturalWidth + '×' + art.naturalHeight : '—'}`;
+      DIAG.n = 0; DIAG.up = 0; DIAG.rd = 0; DIAG.pior = 0; DIAG.t0 = c;
+    }
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.textAlign = 'left';
+    ctx.font = `600 ${Math.round(12 * dpr)}px monospace`; ctx.textBaseline = 'top';
+    const linhas = DIAG.txt.split(' · '), y0 = canvas.height * 0.3;
+    linhas.forEach((t, k) => { const w = ctx.measureText(t).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(4 * dpr, y0 + k * 18 * dpr, w + 8 * dpr, 17 * dpr);
+      ctx.fillStyle = '#7fff7f'; ctx.fillText(t, 8 * dpr, y0 + 2 * dpr + k * 18 * dpr); });
+    ctx.restore();
     requestAnimationFrame(frame);
   }
 
