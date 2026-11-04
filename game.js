@@ -1576,9 +1576,10 @@
   }
   function farmTick() {
     for (const [i] of neveAt) { const t = S.tiles[i]; if (t !== T.TILLED && t !== T.VALA) neveAt.delete(i); }
-    const tl = S.tiles, aux = S.aux, day = isDay();
+    const tl = S.tiles, aux = S.aux, day = isDay(), mask = modoClas ? TER.mascara : null;
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
       const i = y * W + x, t = tl[i];
+      if (mask && mask[i]) continue;   // terrenos das Terras: o tempo conta pelo servidor (terrasPlantasTick)
       if (t === T.CROP) {
         if (aux[i] < 3) {
           const wet = wetAround(x, y), B = BIOMES[S.biome[i]];
@@ -2131,8 +2132,11 @@
     if (bot) { actHeld = false; collectBot(bot); return; }
     const txb = tool !== 'muro' && txNaFrente(x, y);
     if (txb) { actHeld = false; abrirTransmissao(); return; }
-    if (modoClas && (tool === 'enxada' || tool === 'rede')) {
-      actHeld = false; toast('Nas Terras dos Clãs não dá para plantar nem caçar. Compre recursos no Mercado (Menu).', 'warn', 3500); return;
+    if (modoClas && tool === 'rede') {
+      actHeld = false; toast('Nas Terras dos Clãs não dá para caçar. Compre recursos no Mercado (Menu).', 'warn', 3500); return;
+    }
+    if (modoClas && tool === 'enxada' && !noMeuTerreno(x, y)) {
+      actHeld = false; toast('Nas Terras, plante no seu terreno (Construir → Comprar terreno aqui)', 'warn', 3500); return;
     }
     if (!toolUsable(tool)) {
       actHeld = false;
@@ -2146,7 +2150,9 @@
     const i = I(x, y, z);
 
     if (tool === 'maos') { swing = 0; return; }   // mãos livres: só conversa com compradores
-    if (modoClas && (tool === 'picareta' || tool === 'machado')) { terrasGolpe(tool, x, y, z, t, i); return; }
+    const noTerreno = modoClas && noMeuTerreno(x, y) && !TER.obraEm.has(chaveXY(x, y)) && t !== T.WALL && t !== T.GATE;
+    if (modoClas && (tool === 'picareta' || tool === 'machado') && !noTerreno) { terrasGolpe(tool, x, y, z, t, i); return; }
+    if (noTerreno) { const antes = S.tiles[i], auxAntes = z === 0 ? S.aux[y * W + x] : 0; queueMicrotask(() => { if (modoClas && (S.tiles[i] !== antes || (z === 0 && S.aux[y * W + x] !== auxAntes))) terrasBlocoEnviar(i); }); }
     switch (tool) {
       case 'picareta': {
         if (t === T.WALL || t === T.GATE) { hitWall(i, z, 'picareta'); return; }
@@ -2276,11 +2282,11 @@
 
   function upDown() {
     if (interior) { toast('Saia da casa para cavar', 'warn'); return; }
-    if (modoClas) { toast('Nas Terras dos Clãs não dá para cavar nem minerar', 'warn'); return; }
     const p = S.p, x = Math.floor(p.x), y = Math.floor(p.y), z = p.z;
     if (z > 0 && tileAt(x, y, z - 1) === T.HOLE) {
       p.z--; centerPlayer(); toast(layerName(p.z)); return;
     }
+    if (modoClas && !noMeuTerreno(x, y)) { toast('Nas Terras, cave e minere só dentro do seu terreno', 'warn'); return; }
     if (z >= D - 1) { toast('Esta é a camada mais funda', 'warn'); return; }
     const here = I(x, y, z), below = I(x, y, z + 1);
     const th = S.tiles[here], tb = S.tiles[below];
@@ -2302,6 +2308,7 @@
     }
     S.tiles[here] = T.HOLE;
     if (tb !== T.HOLE) S.tiles[below] = T.AIR;
+    if (modoClas) { terrasBlocoEnviar(here); if (tb !== T.HOLE) terrasBlocoEnviar(below); }
     p.z++; centerPlayer();
     toast(layerName(p.z));
     hint('subir', 'Fique sobre a escada e aperte Subir para voltar.');
@@ -9700,7 +9707,7 @@
         S_casa = S;
         if (!mundoClas) {
           mundoClas = emptyState(SEED_CLAS); genWorld(mundoClas);
-          TER.orig = mundoClas.tiles.slice(0, W * H); TER.origAux = mundoClas.aux.slice(0, W * H);   // como o mapa nasce (para crescer de novo)
+          TER.orig = mundoClas.tiles.slice(0, W * H); TER.origAux = mundoClas.aux.slice(0, W * H); TER.origAll = mundoClas.tiles.slice();   // como o mapa nasce (para crescer de novo)
         }
         const t = mundoClas;
         for (const k of LEVA) t[k] = S_casa[k];
@@ -9742,6 +9749,7 @@
       TER.terreno.set(chaveXY(x, y), Date.now()); terrasRegen(); return;
     }
     if (ev === 'o') { if (modoClas) terrasRecarregar(); return; }
+    if (ev === 'b') { terrasBlocoRecebido(d); return; }   // alguém arou, plantou, colheu ou cavou num terreno
     if (ev === 'm') { terrasMobs(d); return; }
     if (ev === 'mh') { terrasGolpeMob(d); return; }
     if (ev === 'og') { if (modoClas && d && d.id != null) obraHp(String(d.id), +d.hp); return; }
@@ -9827,7 +9835,7 @@
   // Tudo o que se derruba ou constrói vai para o servidor (supabase/terras.sql) e avisa quem está lá pelo canal ao vivo.
   // O que foi derrubado volta sozinho: na metade do tempo vira muda, no fim volta a árvore (ou a pedra).
   const BASE_R = 15;   // a base vai até 15 blocos da bandeira para cada lado (31 × 31)
-  const TER = { terreno: new Map(), bases: [], obras: new Map(), obraEm: new Map(), orig: null, origAux: null, desvio: 0, carregando: false, golpes: [], mortes: [], hostCod: null, hostVisto: 0, meusRobos: [], tx: null, terrenos: [] };
+  const TER = { terreno: new Map(), bases: [], obras: new Map(), obraEm: new Map(), orig: null, origAux: null, desvio: 0, carregando: false, golpes: [], mortes: [], hostCod: null, hostVisto: 0, meusRobos: [], tx: null, terrenos: [], blocos: new Map(), mascara: null };
   const terrasCfg = () => Object.assign({ regen: 2, rend: 0 }, MUNDO.terras || {});
   const CICLO_TERRAS = 30 * 60000;
   const chaveXY = (x, y) => y * W + x;
@@ -9864,7 +9872,7 @@
   }
   // machado e picareta nas Terras: só limpam o terreno (sem minério; recurso conforme o administrador)
   function terrasGolpe(tool, x, y, z, t, i) {
-    if (z !== 0) return;
+    if (z !== 0) { actHeld = false; if (tool === 'picareta') toast('Fora do seu terreno não dá para minerar', 'warn'); return; }
     const ob = TER.obras.get(TER.obraEm.get(chaveXY(x, y)));
     if (ob || t === T.WALL || t === T.GATE) {
       if (!ob) { actHeld = false; swing = 0; return; }
@@ -9896,6 +9904,7 @@
     const total = Math.max(0.1, +terrasCfg().regen || 2) * CICLO_TERRAS, agora = Date.now();
     for (const [k, quando] of TER.terreno) {
       const x = k % W, y = (k / W) | 0, i = I(x, y, 0), o = TER.orig[k], t = S.tiles[i], idade = agora - quando;
+      if (TER.blocos.has(i)) { TER.terreno.delete(k); continue; }   // terreno de jogador: o que mudou fica
       if (o !== T.TREE && o !== T.SAPLING && o !== T.ROCK) { if (idade >= total) TER.terreno.delete(k); continue; }
       if (t === T.WALL || t === T.GATE || TER.obraEm.has(k) || S.builds.some(b => shapeHit(b, x + 0.5, y + 0.5))) { if (idade >= total) TER.terreno.delete(k); continue; }
       if (idade < total / 2) { if (t === T.TREE || t === T.SAPLING || t === T.ROCK) { S.tiles[i] = T.GRASS; S.aux[k] = 0; hits.delete(i); } continue; }
@@ -9906,6 +9915,54 @@
     }
   }
   setInterval(() => { if (modoClas) terrasRegen(); }, 10000);
+  // ===== Terrenos: plantar, cavar e minerar (supabase/mundo2.sql) =====
+  // Cada bloco mudado dentro de um terreno vai para o servidor; todos veem igual. A plantação cresce pelo relógio
+  // (desde que foi plantada), mais rápido com água ao lado, então todos veem a mesma fase.
+  const CROP_MS_AGUA = 15000, CROP_MS_SECO = 75000;
+  function terrasMascara() {
+    const m = new Uint8Array(W * H);
+    for (const t of TER.terrenos) for (let y = Math.max(0, t.y - TERRENO_R); y <= Math.min(H - 1, t.y + TERRENO_R); y++) for (let x = Math.max(0, t.x - TERRENO_R); x <= Math.min(W - 1, t.x + TERRENO_R); x++) m[y * W + x] = t.pode ? 2 : 1;
+    TER.mascara = m;
+  }
+  const noMeuTerreno = (x, y) => !!TER.mascara && online() && x >= 0 && y >= 0 && x < W && y < H && TER.mascara[y * W + x] === 2;
+  const cropFase = (x, y, ms) => Math.max(0, Math.min(3, Math.floor((Date.now() - ms) / (wetAround(x, y) ? CROP_MS_AGUA : CROP_MS_SECO))));
+  function blocoAplicar(i, b) {
+    const k = i % (W * H), z = (i / (W * H)) | 0;
+    S.tiles[i] = b.t; hits.delete(i);
+    if (z === 0) { S.aux[k] = b.t === T.CROP ? cropFase(k % W, (k / W) | 0, b.ms) : b.aux; if (b.t !== T.VALA && b.t !== T.SOURCE) S.water[i] = 0; }
+  }
+  function terrasBlocos(lista) {
+    if (!Array.isArray(lista)) return;
+    const novos = new Map();
+    for (const q of lista) {
+      if (!Array.isArray(q)) continue;
+      const [x, y, z, t, aux, ms] = q.map(Number);
+      if (!(x > 0 && y > 0 && x < W - 1 && y < H - 1 && z >= 0 && z < D && t >= 0 && t <= 40)) continue;
+      novos.set(I(x, y, z), { t, aux: aux | 0, ms: ms - TER.desvio });
+    }
+    if (TER.origAll) for (const [i] of TER.blocos) if (!novos.has(i)) { S.tiles[i] = TER.origAll[i]; if (i < W * H) S.aux[i] = TER.origAux[i]; }   // terreno abandonado: volta ao natural
+    for (const [i, b] of novos) { const v = TER.blocos.get(i); if (!v || v.t !== b.t || v.aux !== b.aux || Math.abs(v.ms - b.ms) > 2000 || S.tiles[i] !== b.t) blocoAplicar(i, b); }
+    TER.blocos = novos;
+  }
+  function terrasBlocoEnviar(i) {
+    if (!online() || !NET.terrenoBloco) return;
+    const k = i % (W * H), z = (i / (W * H)) | 0, x = k % W, y = (k / W) | 0, t = S.tiles[i], aux = z === 0 && t !== T.CROP ? S.aux[k] : 0;
+    const b = { t, aux, ms: Date.now() }; TER.blocos.set(i, b);
+    if (z === 0 && t === T.CROP) S.aux[k] = 0;
+    NET.terrenoBloco(x, y, z, t, aux).then(ms => { b.ms = +ms - TER.desvio; NET.terrasEnviar('b', { x, y, z, t, a: aux, ms: +ms }); }, e => toast(e.message, 'warn', 3500));
+  }
+  function terrasBlocoRecebido(d) {
+    if (!modoClas || !d || !TER.mascara) return;
+    const x = d.x | 0, y = d.y | 0, z = d.z | 0, t = d.t | 0;
+    if (!(x > 0 && y > 0 && x < W - 1 && y < H - 1 && z >= 0 && z < D && t >= 0 && t <= 40) || !TER.mascara[y * W + x]) return;
+    const i = I(x, y, z), b = { t, aux: (d.a | 0) & 255, ms: (+d.ms || Date.now() + TER.desvio) - TER.desvio };
+    TER.blocos.set(i, b); blocoAplicar(i, b);
+  }
+  function terrasPlantasTick() {
+    if (!modoClas) return;
+    for (const [i, b] of TER.blocos) if (b.t === T.CROP && i < W * H && S.tiles[i] === T.CROP) S.aux[i] = cropFase(i % W, (i / W) | 0, b.ms);
+  }
+  setInterval(terrasPlantasTick, 4000);
   setInterval(() => { if (modoClas) terrasCarregar(); }, 90000);
   async function terrasCarregar() {
     if (!modoClas || !online() || !NET.terrasEstado || TER.carregando) return;
@@ -9919,7 +9976,9 @@
       for (const b of TER.bases) if (corOk(b.cor) && typeof b.tag === 'string') CLA.cores[b.tag] = b.cor;
       TER.tx = e.tx || null;
       TER.terrenos = (e.terrenos || []).filter(t => t && isFinite(t.x) && isFinite(t.y)).map(t => ({ id: t.id, x: t.x | 0, y: t.y | 0, nome: String(t.nome || '?'), meu: !!t.meu, pode: !!t.pode, amigos: Array.isArray(t.amigos) ? t.amigos : [] }));
+      terrasMascara();
       terrasObras(e.obras || []);
+      if (NET.terrenoBlocos) try { terrasBlocos(await NET.terrenoBlocos() || []); } catch (err) { /* tenta de novo depois */ }
       terrasRegen();
     } catch (err) { /* sem rede: tenta de novo depois */ } finally { TER.carregando = false; }
   }
@@ -10130,7 +10189,7 @@
     let h = '<div class="section-label">Terreno</div>';
     if (!online()) h += '<div class="empty">Comprar e construir nas Terras precisa da conta ligada (no site do jogo).</div>';
     else if (aqui && aqui.meu) {
-      h += `<p class="muted small-text">Você está no <b>seu terreno</b> (35 × 35, a linha dourada). Aqui você coloca casas, móveis, torres, muros e portões. Ninguém consegue derrubar.</p>`;
+      h += `<p class="muted small-text">Você está no <b>seu terreno</b> (35 × 35, a linha dourada). Aqui você planta, cava, minera e coloca casas, móveis, torres, muros e portões. Ninguém consegue derrubar.</p>`;
       h += '<div class="section-label">Amigos que constroem aqui</div><div class="list">';
       if (!aqui.amigos.length) h += '<div class="empty">Nenhum amigo ainda.</div>';
       for (const a of aqui.amigos) h += row('', E(a.nome || '?'), E(a.codigo || ''), `<button type="button" class="btn btn-danger" data-tamigo-del="${aqui.id}:${E(a.codigo || '')}">Tirar</button>`);
@@ -11005,7 +11064,7 @@
   $('btn-staff').addEventListener('click', () => { closeSheet(); openStaff(); });
 
   // ?teste na URL: expõe o estado para testes automáticos
-  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, get esc() { return escCache; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; }, leaveHouse, renderBuild };
+  if (/[?&]teste\b/.test(location.search)) window.TerraDebug = { get S() { return S; }, get RP() { return RP; }, roomFrontTile, get interior() { return interior; }, get fx() { return effects; }, get pushT() { return pushT; }, doorAction, catapultInFront, useTool, target, placeKit, pickUp, candidate, placeProblem, showSheet, botMine, save, get MUNDO() { return MUNDO; }, evNpcs, vilasTick, fugitivoTick, darPremio, renderAdmin, killMob, enterHouse, get sons() { return Object.keys(somBuf).length; }, newMob, get NPCS() { return S.npcs; }, viajar, TER, claMarcarBase, get MUNDO2() { return MUNDO; }, terrasCarregar, terrasRegen, get modoClas() { return modoClas; }, get esc() { return escCache; }, terrasSouHost, get REMOTOS() { return REMOTOS; }, get CLA() { return CLA; }, leaveHouse, renderBuild, upDown };
 
   async function boot() {
     buildSprites();

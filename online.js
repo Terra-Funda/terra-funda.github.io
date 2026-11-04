@@ -228,6 +228,7 @@
       .on('broadcast', { event: 'mh' }, ({ payload }) => onEvento('mh', payload))
       .on('broadcast', { event: 'og' }, ({ payload }) => onEvento('og', payload))
       .on('broadcast', { event: 'rb' }, ({ payload }) => onEvento('rb', payload))
+      .on('broadcast', { event: 'b' }, ({ payload }) => onEvento('b', payload))
       .subscribe(st => { if (st === 'SUBSCRIBED') onEvento('ok'); });
   };
   T.terrasEnviar = (ev, payload) => { if (terras.ch) terras.ch.send({ type: 'broadcast', event: ev, payload }).catch(() => {}); };
@@ -250,6 +251,9 @@
   T.terrenoComprar = (x, y) => rpc('terreno_comprar', { p_x: x, p_y: y });
   T.terrenoAbandonar = id => rpc('terreno_abandonar', { p_id: id });
   T.terrenoAmigo = (id, codigo, add) => rpc('terreno_amigo', { p_id: id, p_codigo: codigo, p_add: !!add });
+  // plantar, cavar e minerar no terreno (supabase/mundo2.sql)
+  T.terrenoBloco = (x, y, z, t, aux) => rpc('terreno_bloco', { p_x: x, p_y: y, p_z: z, p_t: t, p_aux: aux || 0 });
+  T.terrenoBlocos = () => rpc('terreno_blocos_lista', {});
   T.terrasRemover = id => rpc('terras_remover', { p_id: id });
   // guerra (supabase/guerra.sql): golpes em construções de outros clãs, conserto, torre de transmissão e robôs
   T.terrasGolpear = (id, ferramenta) => rpc('terras_golpear', { p_id: id, p_ferramenta: ferramenta });
