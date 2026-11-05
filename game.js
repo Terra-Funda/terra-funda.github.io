@@ -11184,7 +11184,9 @@
   function portaoFechado(x, y) {
     if (S.tiles[I(x, y, 0)] !== T.GATE) return false;
     const o = TER.obras.get(TER.obraEm.get(chaveXY(x, y)));
-    return !!o && o.cla !== meuClaId();
+    if (!o) return false;
+    if (o.ter != null) { const t = TER.terrenos.find(q => q.id == o.ter); return !(t && (t.meu || t.pode)); }   // portão de terreno: abre para o dono e os amigos
+    return (o.cla || null) !== meuClaId();
   }
   // caminho em blocos (busca em largura numa caixa em volta do robô e do alvo); sem caminho → null
   function roboRota(m, a) {
