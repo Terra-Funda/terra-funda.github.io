@@ -6903,7 +6903,7 @@
         if (NET.isAdmin) {
           btns += p.role === 'moderator' ? `<button type="button" class="btn" data-pl="demote" data-id="${p.id}">Remover moderador</button>`
             : `<button type="button" class="btn" data-pl="promote" data-id="${p.id}">Tornar moderador</button>`;
-          btns += `<button type="button" class="btn btn-gold" data-pl="coins" data-id="${p.id}">+500 moedas</button>`;
+          btns += `<input type="number" class="venda-preco" data-moedas="${p.id}" min="1" max="1000000000" value="5000" aria-label="Quantas moedas"><button type="button" class="btn btn-gold" data-pl="coins" data-id="${p.id}">Dar moedas</button>`;
           btns += `<button type="button" class="btn" data-pl="${p.imune ? 'imune0' : 'imune1'}" data-id="${p.id}">${p.imune ? 'Tirar imunidade' : 'Dar imunidade a ban'}</button>`;
           btns += `<span class="bless-form"><input type="number" min="0" max="1000000" value="${p.beta || 1000}" data-beta="${p.id}" aria-label="Moedas por semana" style="width:6em">
             <button type="button" class="btn" data-pl="beta" data-id="${p.id}">${p.beta ? 'Mudar beta' : 'Tornar testador beta'}</button>${p.beta ? `<button type="button" class="btn" data-pl="beta0" data-id="${p.id}">Tirar do beta</button>` : ''}</span>`;
@@ -6944,7 +6944,7 @@
       else if (action === 'unban') await NET.ban(id, 0, null);
       else if (action === 'promote') await NET.setRole(id, 'moderator');
       else if (action === 'demote') await NET.setRole(id, 'player');
-      else if (action === 'coins') await NET.giveCoins(id, 500);
+      else if (action === 'coins') { const n = Math.min(1e9, Math.max(1, Math.floor(+(document.querySelector(`[data-moedas="${id}"]`) || {}).value || 0))); await NET.giveCoins(id, n); toast(`+${n.toLocaleString('pt-BR')} moedas enviadas`, 'gold'); }
       else if (action === 'imune1' || action === 'imune0') await NET.imunidade(id, action === 'imune1');
       else if (action === 'beta') await NET.beta(id, Math.max(0, Math.floor(+document.querySelector(`[data-beta="${id}"]`).value || 0)));
       else if (action === 'beta0') await NET.beta(id, 0);
@@ -7516,7 +7516,7 @@
     renderAdmin();
   }
   function adminTool(action) {
-    if (action === 'coins') { S.coins += 500; invDirty = true; toast('+500 moedas'); }
+    if (action === 'coins') { const n = Math.min(1e9, Math.max(1, Math.floor(+($('admin-moedas') || {}).value || 0))); if (!(n > 0)) { toast('Digite quantas moedas', 'warn'); return; } S.coins += n; invDirty = true; save(true); toast(`+${n.toLocaleString('pt-BR')} moedas`, 'gold'); }
     else if (action === 'hour') { S.time += DAY_MS / 4; toast('Avançou 6 horas'); }
     else if (action === 'javali') {
       if (isDay()) { toast('O javali dourado só aparece à noite. Avance as horas primeiro.', 'warn'); return; }
