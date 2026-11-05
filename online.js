@@ -106,12 +106,16 @@
   let pending = null, timer = null, inflight = false;
   async function flush() {
     timer = null;
-    if (!pending || !T.user || inflight || T.banned) return;
+    if (!pending || !T.user || T.banned) return;
+    if (inflight) { timer = setTimeout(flush, 1500); return; }   // um envio ainda em curso: manda este logo depois
     const body = pending; pending = null; inflight = true;
+    let falhou = false;
     try {
-      await sb.from('saves').upsert({ user_id: T.user.id, data: body, updated_at: new Date().toISOString() });
-    } catch (e) { pending = pending || body; }
+      const { error } = await sb.from('saves').upsert({ user_id: T.user.id, data: body, updated_at: new Date().toISOString() });
+      if (error) falhou = true;
+    } catch (e) { falhou = true; }
     inflight = false;
+    if (falhou) { pending = pending || body; if (!timer) timer = setTimeout(flush, 5000); }   // tenta de novo
   }
   // grava na nuvem no máximo a cada 20 s (ou já, quando immediate)
   T.queueSave = function (obj, immediate) {

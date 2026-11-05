@@ -1146,7 +1146,7 @@
     }
     for (const m of S.mobs) m.aggro = false;
     p.x = S.home.x; p.y = S.home.y; p.z = 0;
-    if (!walkable(tileAt(Math.floor(p.x), Math.floor(p.y), 0), 0)) { p.x = SPAWN.x + 0.5; p.y = SPAWN.y + 0.5; }
+    if (!walkable(tileAt(Math.floor(p.x), Math.floor(p.y), 0), 0)) { const c = chaoPerto(Math.floor(p.x), Math.floor(p.y)); if (c) [p.x, p.y] = c; else { p.x = SPAWN.x + 0.5; p.y = SPAWN.y + 0.5; } }
     S.hp = HP_MAX; invulnTil = performance.now() + 4000; homing = null; interior = null;
     for (let k = 0; k < 20; k++) waterTick();
     invDirty = true; toast(msg, 'warn', 5500); save();
@@ -2455,7 +2455,7 @@
     if (S.time >= homing.until) {
       homing = null;
       let { x, y } = S.home;
-      if (!walkable(tileAt(Math.floor(x), Math.floor(y), 0), 0)) { x = SPAWN.x + 0.5; y = SPAWN.y + 0.5; }
+      if (!walkable(tileAt(Math.floor(x), Math.floor(y), 0), 0)) { const c = chaoPerto(Math.floor(x), Math.floor(y)); if (c) [x, y] = c; else { x = SPAWN.x + 0.5; y = SPAWN.y + 0.5; } }
       p.x = x; p.y = y; p.z = 0; interior = null;
       S.homeReadyAt = S.time + HOME_COOLDOWN;
       for (let k = 0; k < 20; k++) waterTick();   // enche a água em volta da casa
@@ -7765,7 +7765,7 @@
       const x = Math.floor(S.p.x), y = Math.floor(S.p.y);
       if (S.p.z !== 0 || interior) { toast('Defina a casa na superfície, do lado de fora', 'warn'); return; }
       if (!noMeuTerreno(x, y)) { toast('Defina a casa dentro do seu terreno ou da base do seu clã', 'warn', 3500); return; }
-      S.home = { x: x + 0.5, y: y + 0.5 }; if (S_casa) S_casa.casaTerras = { x: x + 0.5, y: y + 0.5 };
+      S.home = { x: x + 0.5, y: y + 0.5 }; if (S_casa) S_casa.casaTerras = { x: x + 0.5, y: y + 0.5 }; casaCopia(S.home);
       toast('Casa definida aqui: a volta para casa e quem cair acordam neste lugar', 'leaf', 3500); save(true); return;
     }
     if (modoClas) { toast('Nas Terras dos Clãs a sua casa é o porto', 'warn'); return; }
@@ -10278,6 +10278,7 @@
         for (const k of LEVA) t[k] = S_casa[k];
         modoClas = true;
         garantirPorto(t);
+        if (mundoUnico() && !S_casa.casaTerras) { const cp = casaCopia(); if (cp) S_casa.casaTerras = cp; }
         const ct = mundoUnico() && S_casa.casaTerras, ctOk = ct && ct.x > 2 && ct.y > 2 && ct.x < W - 3 && ct.y < H - 3;
         t.home = ctOk ? { x: ct.x, y: ct.y } : { x: t.porto.x - 1.2, y: t.porto.y + 1.5 };   // casa no seu terreno (se definiu) ou no porto
         t.p = { x: t.home.x, y: t.home.y, z: 0, dir: 3 };
@@ -10537,6 +10538,27 @@
   }
   setInterval(terrasPlantasTick, 4000);
   setInterval(() => { if (modoClas) terrasCarregar(); }, 90000);
+  // cópia da casa no navegador (se a nuvem guardar um save mais velho, a casa não se perde)
+  function casaCopia(c) {
+    const k = 'terra-funda-casa' + (NET.user ? ':' + NET.user.id : '');
+    try {
+      if (c) { localStorage.setItem(k, JSON.stringify({ x: c.x, y: c.y })); return c; }
+      const d = JSON.parse(localStorage.getItem(k) || 'null');
+      return d && isFinite(d.x) && isFinite(d.y) && d.x > 2 && d.y > 2 && d.x < W - 3 && d.y < H - 3 ? { x: +d.x, y: +d.y } : null;
+    } catch (e) { return null; }
+  }
+  // sem casa definida (ou a casa ficou fora das suas terras), mas com terreno: a casa passa a ser o seu terreno
+  function casaPadrao() {
+    if (!modoClas || !mundoUnico() || !S_casa || !TER.mascara) return;
+    const h = S_casa.casaTerras;
+    if (h && noMeuTerreno(Math.floor(h.x), Math.floor(h.y))) return;
+    const t = TER.terrenos.find(t => t.meu); if (!t) return;
+    const c = chaoPerto(t.x, t.y); if (!c) return;
+    const noPorto = S.porto && Math.hypot(S.p.x - (S.porto.x - 1.2), S.p.y - (S.porto.y + 1.5)) < 1;
+    S.home = { x: c[0], y: c[1] }; S_casa.casaTerras = { ...S.home }; casaCopia(S.home);
+    if (noPorto) { S.p.x = c[0]; S.p.y = c[1]; }
+    save(true);
+  }
   async function terrasCarregar() {
     if (!modoClas || !online() || !NET.terrasEstado || TER.carregando) return;
     TER.carregando = true;
@@ -10551,6 +10573,7 @@
       TER.tx = e.tx || null;
       TER.terrenos = (e.terrenos || []).filter(t => t && isFinite(t.x) && isFinite(t.y)).map(t => ({ id: t.id, x: t.x | 0, y: t.y | 0, nome: String(t.nome || '?'), meu: !!t.meu, pode: !!t.pode, amigos: Array.isArray(t.amigos) ? t.amigos : [] }));
       terrasMascara();
+      casaPadrao();
       terrasObras(e.obras || []);
       if (NET.terrenoBlocos) try { terrasBlocos(await NET.terrenoBlocos() || []); } catch (err) { /* tenta de novo depois */ }
       terrasRegen();
