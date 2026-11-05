@@ -201,7 +201,7 @@
   const PLACAS = /*PLACAS*/{"banca_feira_r0":[0.359,0.049,0.297,0.102],"banca_petroleo_r0":[0.356,0.393,0.203,0.07],"banca_joias_r0":[0.41,0.392,0.26,0.068],"banca_loja_r0":[0.698,0.583,0.08,0.08]}/*FIM_PLACAS*/;   // onde fica a placa em branco de cada banca (frações do desenho)
   // fortalezas descontinuadas: quem tinha recebe o valor de volta ao abrir o jogo
   const DESCONTINUADAS = { muralha: 4000, muralha_vila: 5200, forte: 3000, forte_cidade: 6000, campo: 5500, colonia: 9000, cabana_vila: 0 };
-  const SHOP_TABS = [['ferramentas', 'Ferramentas'], ['casas', 'Casas'], ['defesa', 'Defesa'], ['moveis', 'Móveis'], ['ajudantes', 'Ajudantes'], ['negocios', 'Negócios'], ['skins', 'Skins']];
+  const SHOP_TABS = [['ferramentas', 'Ferramentas'], ['casas', 'Casas'], ['defesa', 'Defesa'], ['moveis', 'Móveis'], ['ajudantes', 'Ajudantes'], ['negocios', 'Negócios'], ['skins', 'Skins'], ['cosmeticos', 'Cosméticos']];
   const TAB_OF = d => d.tipo === 'cla' || d.tipo === 'clabandeira' || d.tipo === 'clatx' ? null : d.tipo === 'maquina' || d.tipo === 'banca' ? 'negocios' : d.tipo === 'casa' || d.tipo === 'forte' ? 'casas' : d.tipo === 'torre' || d.tipo === 'armadilha' ? 'defesa' : d.tipo === 'movel' ? 'moveis' : 'ajudantes';
   const ROBO_CAP = 30, ROBO_EVERY = 30, ROBO_R = 6;
 
@@ -636,7 +636,7 @@
       v: 2, savedAt: Date.now(), seed: S.seed, tiles: toB64(rle(S.tiles)), aux: toB64(rle(S.aux)), road: S.road ? toB64(rle(S.road)) : undefined,
       p: S.p, inv: S.inv, coins: S.coins, bonusInicial: S.bonusInicial || 0, owned: S.owned, time: S.time, tool: S.tool, hints: S.hints, catalog: S.catalog,
       npcs: S.npcs.map(n => ({ id: n.id, x: n.x, y: n.y })),
-      home: S.home, homeReadyAt: S.homeReadyAt, deposits: S.deposits, char: S.char, skins: S.skins, skin: S.skin, skinCor: S.skinCor,
+      home: S.home, homeReadyAt: S.homeReadyAt, deposits: S.deposits, char: S.char, skins: S.skins, skin: S.skin, skinCor: S.skinCor, cos: S.cos,
       tirado: S.tirado, murosV2: true, wmat: toB64(rle(S.wmat)), builds: S.builds, kit: S.kit, sel: S.sel, dur: S.dur, broken: S.broken,
       hp: S.hp, wxp: S.wxp, wbless: S.wbless, camps: S.camps, mundo: NET.enabled ? undefined : MUNDO, presentes: S.presentes, porto: S.porto, casaTerras: S.casaTerras || undefined, migrado: S.migrado || undefined, buildsAntigos: S.buildsAntigos, fugPegos: S.fugPegos, fugVisto: S.fugVisto, vilaEstado: S.vilaEstado, aura: S.aura, playMs: S.playMs, morte: S.morte, bichoMorto: S.bichoMorto,
       bots: S.bots.map(b => ({ x: b.x, y: b.y, hx: b.hx, hy: b.hy, store: b.store, t: b.t, tipo: b.tipo })),
@@ -683,7 +683,7 @@
       s.homeReadyAt = d.homeReadyAt || 0;
       if (!redim) s.deposits = Array.isArray(d.deposits) ? d.deposits : [];
       s.char = CHARACTERS.some(c => c.id === d.char) ? d.char : 'menino';
-      if (!redim && d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (d.casaTerras && isFinite(d.casaTerras.x) && isFinite(d.casaTerras.y)) s.casaTerras = { x: +d.casaTerras.x, y: +d.casaTerras.y }; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {};
+      if (!redim && d.porto && typeof d.porto.x === 'number') s.porto = d.porto; s.migrado = !!d.migrado; if (d.casaTerras && isFinite(d.casaTerras.x) && isFinite(d.casaTerras.y)) s.casaTerras = { x: +d.casaTerras.x, y: +d.casaTerras.y }; if (Array.isArray(d.buildsAntigos)) s.buildsAntigos = d.buildsAntigos; s.skins = Array.isArray(d.skins) ? d.skins : []; s.skin = d.skin || null; s.skinCor = d.skinCor && typeof d.skinCor === 'object' ? d.skinCor : {}; if (d.cos && typeof d.cos === 'object') s.cos = d.cos;
       { // skins antigas que saíram do jogo: devolve as moedas
         const fora = s.skins.filter(id => !SKINS.some(k => k.id === id));
         if (fora.length) { const PRECO_ANTIGO = {"guarda_azul":1400,"mecanico_vermelho":1400,"cacadora":2800,"policial":2800,"saqueador":2800,"pirata":3500,"rei_mascarado":3500,"samurai":6300,"pistoleira":6300,"cowboy_caveira":6300,"princesa":6300,"ceifador":8400,"exploradora":1400,"arqueiro_mata":2800,"arqueira_mata":2800,"guerreiro_tribal":3500,"sombra_tatica":6300,"carrasco":6300,"cacique":12600,"ciberpiloto":12600,"espectro":14000,"guardiao_cristal":17500,"rei_dourado":17500,"raposa":20000,"elfo_vermelho":20000,"elfo_verde":20000,
@@ -1028,7 +1028,7 @@
     if (hp && sr) { const k = h / sr[3], w = sr[2] * k; hx = flip ? cx + w / 2 - hp[0] * k : cx - w / 2 + hp[0] * k; hy = bottom - h + hp[1] * k; }
     const u2 = tp / 16, side = dir === 2 ? -1 : 1;
     const lr = tool === 'livro' && artRect(wlv('livro') >= 4 ? 'livro_brilho' : 'livro_mao');
-    if (lr) { const w = 0.62 * tp, h = w * lr[3] / lr[2]; ctx.drawImage(art, lr[0], lr[1], lr[2], lr[3], hx + (dir >= 2 ? side * 3 * u2 : 0) - w / 2, hy - h * 0.75, w, h); return; }
+    if (lr) { const w = 0.62 * tp, h = w * lr[3] / lr[2]; ctx.drawImage(folha(lr), lr[0], lr[1], lr[2], lr[3], hx + (dir >= 2 ? side * 3 * u2 : 0) - w / 2, hy - h * 0.75, w, h); return; }
     if (tool === 'livro') {   // livro aberto na mão (sem arte)
       ctx.save(); ctx.translate(hx + (dir >= 2 ? side * 3 * u2 : 0), hy - 1 * u2);
       ctx.fillStyle = '#3a6a3a'; ctx.fillRect(-4 * u2, -3 * u2, 8 * u2, 5.5 * u2);
@@ -2867,7 +2867,7 @@
   function drawIcon(c, id) {
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, 48, 48);
-    if (drawArtFit(c, 'icon_' + id, 48)) return;
+    if (drawArtFit(c, 'icon_' + arteFerr(id), 48)) return;
     c.imageSmoothingEnabled = false;
     c.setTransform(3, 0, 0, 3, 0, 0);
     if (id === 'picareta') {
@@ -5961,15 +5961,30 @@
     if (flip) { ctx.save(); ctx.translate(cx, 0); ctx.scale(-1, 1); ctx.drawImage(cv, -w / 2, bottom - h, w, h); ctx.restore(); }
     else ctx.drawImage(cv, cx - w / 2, bottom - h, w, h);
   }
+  // Terceira folha: ferramentas em 3D e cosméticos (skins de ferramenta e máscaras) — tools/build_cosmeticos.py.
+  // Quando carrega, as peças entram no ATLAS (página 3) e passam a valer no lugar das antigas.
+  const ATLAS3 = /*ATLAS3_MAP*/{"cetro_brilho":[0,0,114,130],"mascara_raposa_side":[116,0,100,112],"mascara_samurai_front":[218,0,102,112],"mascara_samurai_side":[322,0,87,112],"mascara_samurai_back":[411,0,102,112],"mascara_tribal_front":[515,0,83,112],"mascara_tribal_side":[600,0,52,112],"mascara_tribal_back":[654,0,83,112],"mascara_rei_front":[739,0,74,112],"mascara_rei_side":[815,0,78,112],"mascara_rei_back":[895,0,74,112],"mascara_macabro_front":[0,132,74,112],"mascara_macabro_side":[76,132,73,112],"mascara_macabro_back":[151,132,74,112],"mascara_duque_front":[227,132,78,112],"mascara_duque_side":[307,132,60,112],"mascara_duque_back":[369,132,78,112],"mascara_raposa_front":[449,132,112,111],"mascara_raposa_back":[563,132,112,111],"cetro_mao":[677,132,94,110],"icon_machado":[773,132,87,96],"icon_picareta":[862,132,95,96],"icon_espada":[0,246,93,96],"icon_rede":[95,246,96,96],"icon_arco":[193,246,75,96],"icon_cetro":[270,246,94,96],"arco_mao":[366,246,58,96],"icon_cos_machado_caveira":[426,246,81,96],"icon_cos_machado_gelo":[509,246,83,96],"icon_cos_machado_raizes":[594,246,86,96],"icon_cos_machado_real":[682,246,83,96],"icon_cos_machado_fogo":[767,246,82,96],"icon_cos_machado_futurista":[851,246,93,96],"mascara_robo_front":[0,344,112,94],"mascara_robo_back":[114,344,112,94],"mascara_robo_side":[228,344,112,92],"icon_enxada":[342,344,96,88],"livro_brilho":[440,344,92,74],"icon_livro":[534,344,96,71],"livro_mao":[632,344,72,54],"grip_machado":[28.8,71.3,75.9,10.5,12.2,83.2],"grip_picareta":[24.7,70.5,72.6,19.5,11.4,82.7],"grip_espada":[65.5,28.1,2.7,92.7,81.1,11.4],"grip_enxada":[27.2,60.2,91.9,8.8,12.0,75.2],"grip_rede":[28.0,67.1,89.6,5.6,12.3,82.7],"grip_arco":[36.2,77.4,81.1,8.3,10.7,84.0],"grip_cetro":[27.3,66.9,90.0,4.0,10.7,82.9],"grip_cos_machado_caveira":[26.8,72.5,69.4,8.4,8.7,83.4],"grip_cos_machado_gelo":[27.1,71.5,70.2,7.5,10.5,84.0],"grip_cos_machado_raizes":[27.2,71.2,71.4,9.6,10.2,81.9],"grip_cos_machado_real":[28.0,69.9,72.6,9.2,11.0,81.0],"grip_cos_machado_fogo":[27.6,71.4,69.9,7.1,11.0,84.0],"grip_cos_machado_futurista":[27.5,73.3,73.0,9.7,10.4,84.7]}/*FIM3*/;
+  let art3 = null;
+  {
+    const img = new Image();
+    img.onload = () => fixarImagem(img, im => {
+      art3 = im;
+      for (const [k, v] of Object.entries(ATLAS3)) ATLAS[k] = k.startsWith('grip_') ? v : [v[0], v[1], v[2], v[3], 3];
+      natCache.clear(); buildIconURLs(); invDirty = true;
+    });
+    img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['cosmeticos-v1.webp'][n]; if (alt) img.src = alt; };
+    img.src = 'assets/cosmeticos-v1.webp';
+  }
+  const folha = r => (r && r[4] === 3 && art3 ? art3 : art);
   // Cópia de um pedaço do atlas no tamanho original: desenhos girados (ferramenta na mão, golpes, armas)
   // saem bem mais leves de um canvas pequeno do que de um pedaço do atlas grande.
   const natCache = new Map();
   function nat(r) {
-    const key = r[0] * 8192 + r[1];
+    const key = (r[4] === 3 ? 1e8 : 0) + r[0] * 8192 + r[1];
     let c = natCache.get(key);
     if (!c) {
       c = document.createElement('canvas'); c.width = r[2]; c.height = r[3];
-      c.getContext('2d').drawImage(art, r[0], r[1], r[2], r[3], 0, 0, r[2], r[3]);
+      c.getContext('2d').drawImage(folha(r), r[0], r[1], r[2], r[3], 0, 0, r[2], r[3]);
       natCache.set(key, c);
     }
     return c;
@@ -6039,7 +6054,7 @@
     if (!r) return false;
     const s = Math.min(size / r[2], size / r[3]), w = r[2] * s, h = r[3] * s;
     c.imageSmoothingEnabled = true;
-    c.drawImage(art, r[0], r[1], r[2], r[3], (size - w) / 2, (size - h) / 2, w, h);
+    c.drawImage(folha(r), r[0], r[1], r[2], r[3], (size - w) / 2, (size - h) / 2, w, h);
     return true;
   }
   // miniaturas para a mochila (falha em silêncio se o navegador bloquear a leitura do atlas)
@@ -6384,6 +6399,17 @@
             `<button type="button" class="btn ${S.coins >= it.preco && !locked ? 'btn-gold' : ''}" data-buy="${it.id}" ${S.coins >= it.preco && !locked ? '' : 'disabled'}>${it.preco} moedas</button>`}</div>`;
       }
       html += '</div><p class="muted small-text">As ferramentas da loja gastam com o uso e precisam ser compradas de novo. As simples dá para fazer na Mochila.</p>';
+    } else if (shopTab === 'cosmeticos') {
+      const st = cosEstado(), lista = COSMETICOS.filter(c => ATLAS[cosArte(c)] && (cosPreco(c) != null || st.tem.includes(c.id)));
+      html += '<div class="list">';
+      if (!lista.length) html += '<div class="empty">Nenhum cosmético à venda agora. Fique de olho nos eventos!</div>';
+      for (const c of lista) {
+        const tem = st.tem.includes(c.id), usando = cosUsando(c), pr = cosPreco(c), [rn, rc] = RARIDADE[c.raridade] || RARIDADE.comum;
+        const btn = usando ? `<button type="button" class="btn" data-cosusar="${c.id}">Tirar</button>` : tem ? `<button type="button" class="btn btn-gold" data-cosusar="${c.id}">Usar</button>`
+          : `<button type="button" class="btn ${S.coins >= pr ? 'btn-gold' : ''}" data-cosbuy="${c.id}" ${S.coins >= pr ? '' : 'disabled'}>${pr} moedas</button>`;
+        html += `<div class="row skin-row">${cosThumb(c)}<span class="name"><b>${c.nome}</b><small style="color:${rc}">${rn} · ${c.tipo === 'mascara' ? (c.capacete ? 'capacete' : 'máscara') : 'skin do ' + c.alvo}${usando ? ' · usando' : ''}${!tem && pr != null ? ' · por tempo limitado' : ''}</small></span><span></span><span class="admin-btns">${btn}</span></div>`;
+      }
+      html += '</div><p class="muted small-text">Cosméticos só mudam a aparência: a ferramenta continua com a mesma força. Os outros jogadores veem o que você usa.</p>';
     } else if (shopTab === 'skins') {
       const ready = SKINS.filter(sk => skinReady(sk.id) && (!sk.evento || precoSkin(sk) != null || (S.skins || []).includes(sk.id)))
         .sort((a, b) => !!(b.evento && precoSkin(b) != null) - !!(a.evento && precoSkin(a) != null));
@@ -7209,7 +7235,7 @@
           if (a === 'vila-del') MUNDO.vilas.splice(MUNDO.vilas.indexOf(v), 1);
           mundoSalvar('vilas');
         } else if (a === 'venda' || a === 'venda-tirar') {
-          const sk = SKINS.find(q => q.id === id); if (!sk) return;
+          const sk = SKINS.find(q => q.id === id) || (id.startsWith('cos_') && COSMETICOS.find(q => 'cos_' + q.id === id)); if (!sk) return;
           if (a === 'venda') { const pr = Math.floor(+box.querySelector(`[data-venda-preco="${id}"]`).value); if (!(pr > 0)) { toast('Preço inválido', 'warn'); return; } MUNDO.vendas[id] = pr; toast(`${sk.nome} à venda por ${pr} moedas`, 'gold'); }
           else { delete MUNDO.vendas[id]; toast(`${sk.nome} saiu da loja`); }
           mundoSalvar('vendas');
@@ -7243,7 +7269,15 @@
       }
       html += '</div>';
     }
-    html += `<div class="list">`;
+    html += `<div class="section-label" style="color:#f1c40f">Cosméticos (skins de ferramenta e máscaras)</div><div class="list">`;
+    for (const c of COSMETICOS) {
+      const vid = 'cos_' + c.id, pr = MUNDO.vendas[vid];
+      html += `<div class="row admin-row">${cosThumb(c)}<span class="name"><b>${escapeHtml(c.nome)}</b><small>${(RARIDADE[c.raridade] || RARIDADE.comum)[0]} · ${pr != null ? 'À venda por ' + pr + ' moedas' : 'Fora da loja'}</small></span>
+        <span class="admin-btns"><input type="number" class="venda-preco" data-venda-preco="${vid}" min="1" max="9999999" value="${pr ?? c.preco}" aria-label="Preço">
+        <button type="button" class="btn ${pr != null ? '' : 'btn-gold'}" data-ev="venda" data-id="${vid}">${pr != null ? 'Mudar preço' : 'Pôr à venda'}</button>
+        ${pr != null ? `<button type="button" class="btn btn-danger" data-ev="venda-tirar" data-id="${vid}">Tirar da loja</button>` : ''}</span></div>`;
+    }
+    html += `</div><div class="list">`;
     html += `</div><div class="section-label">Eventos com data (Natal, Páscoa…)</div><div class="list">`;
     if (!MUNDO.eventos.length) html += '<div class="empty">Nenhum evento. Crie abaixo.</div>';
     for (const ev of MUNDO.eventos) {
@@ -7703,6 +7737,10 @@
       const sellBtn = e.target.closest('[data-sell]');
       if (sellBtn) { sell(sellBtn.dataset.sell); renderShop(); return; }
       if (e.target.closest('[data-sellall]')) { sellAll(); renderShop(); return; }
+      const cb = e.target.closest('[data-cosbuy]');
+      if (cb) { cosComprar(cb.dataset.cosbuy); renderShop(); return; }
+      const cu = e.target.closest('[data-cosusar]');
+      if (cu) { cosUsar(cu.dataset.cosusar); renderShop(); return; }
       const skBuy = e.target.closest('[data-skinbuy]');
       if (skBuy) { buySkin(skBuy.dataset.skinbuy); renderShop(); return; }
       const corAb = e.target.closest('[data-corabre]');
@@ -7976,6 +8014,79 @@
     else ctx.drawImage(nat(sr), x0, y0, pw, phh, dx, dy, pw * k, phh * k);
     ctx.restore();
   }
+  // ================= Cosméticos: skins de ferramenta e máscaras =================
+  // Só aparecem na loja quando o administrador põe à venda (Painel → Eventos), pelo preço que escolher.
+  // Mudam só a aparência; os outros jogadores veem.
+  const COSMETICOS = [
+    { id: 'machado_raizes', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado de Raízes', preco: 4000, raridade: 'rara' },
+    { id: 'machado_fogo', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado de Fogo', preco: 6000, raridade: 'epica' },
+    { id: 'machado_gelo', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado de Gelo', preco: 6000, raridade: 'epica' },
+    { id: 'machado_caveira', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado Caveira', preco: 6000, raridade: 'epica' },
+    { id: 'machado_futurista', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado Futurista', preco: 8000, raridade: 'lendaria' },
+    { id: 'machado_real', tipo: 'ferramenta', alvo: 'machado', nome: 'Machado Real', preco: 12000, raridade: 'lendaria' },
+    { id: 'mascara_tribal', tipo: 'mascara', nome: 'Máscara Tribal', preco: 3000, raridade: 'comum' },
+    { id: 'mascara_raposa', tipo: 'mascara', nome: 'Máscara de Raposa', preco: 4000, raridade: 'rara' },
+    { id: 'mascara_samurai', tipo: 'mascara', nome: 'Máscara Samurai', preco: 5000, raridade: 'epica' },
+    { id: 'mascara_macabro', tipo: 'mascara', nome: 'Sorriso Macabro', preco: 5000, raridade: 'epica' },
+    { id: 'mascara_duque', tipo: 'mascara', nome: 'Máscara do Duque', preco: 6000, raridade: 'epica' },
+    { id: 'mascara_robo', tipo: 'mascara', nome: 'Visor Robô', preco: 8000, raridade: 'lendaria', capacete: true, alto: 0.02, escala: 1.15 },
+    { id: 'mascara_rei', tipo: 'mascara', nome: 'Máscara do Rei', preco: 12000, raridade: 'lendaria', capacete: true, escala: 1.12 },
+  ];
+  const RARIDADE = { comum: ['Comum', '#c9bfae'], rara: ['Rara', '#5fb3ff'], epica: ['Épica', '#c08bff'], lendaria: ['Lendária', '#f1c40f'] };
+  const cosPreco = c => ((typeof MUNDO !== 'undefined' && MUNDO.vendas) || {})['cos_' + c.id] ?? null;   // null = fora da loja
+  const cosArte = c => c.tipo === 'mascara' ? c.id + '_front' : 'icon_cos_' + c.id;
+  function cosEstado() {
+    if (!S.cos || typeof S.cos !== 'object') S.cos = {};
+    if (!Array.isArray(S.cos.tem)) S.cos.tem = [];
+    if (!S.cos.ferr || typeof S.cos.ferr !== 'object') S.cos.ferr = {};
+    return S.cos;
+  }
+  const cosUsando = c => c.tipo === 'mascara' ? (S.cos && S.cos.mascara) === c.id : !!(S.cos && S.cos.ferr && S.cos.ferr[c.alvo] === c.id);
+  // nome da arte da ferramenta: a skin escolhida (se a arte dela já carregou) ou a normal
+  function arteFerr(tool) { const id = S && S.cos && S.cos.ferr && S.cos.ferr[tool]; return id && ATLAS['icon_cos_' + id] ? 'cos_' + id : tool; }
+  const cosURL = {};
+  function cosThumb(c) {
+    const k = cosArte(c);
+    if (!cosURL[k]) {
+      if (!ATLAS[k]) return '<span class="sw"></span>';
+      const cv = document.createElement('canvas'); cv.width = cv.height = 48;
+      drawArtFit(cv.getContext('2d'), k, 48);
+      try { cosURL[k] = cv.toDataURL(); } catch (e) { return '<span class="sw"></span>'; }
+    }
+    return `<img class="thumb" src="${cosURL[k]}" alt="">`;
+  }
+  function cosComprar(id) {
+    const c = COSMETICOS.find(q => q.id === id), st = cosEstado(), pr = c && cosPreco(c);
+    if (!c || st.tem.includes(id)) return;
+    if (pr == null) { toast('Esse cosmético não está mais à venda', 'warn'); return; }
+    if (S.coins < pr) { toast(`Faltam ${pr - S.coins} moedas`, 'warn'); return; }
+    S.coins -= pr; st.tem.push(id); sfx('moeda');
+    cosUsar(id, true); toast(`${c.nome}: é seu!`, 'gold'); save(true);
+  }
+  function cosUsar(id, so) {
+    const c = COSMETICOS.find(q => q.id === id), st = cosEstado();
+    if (!c || !st.tem.includes(id)) return;
+    if (c.tipo === 'mascara') st.mascara = st.mascara === id && !so ? null : id;
+    else st.ferr[c.alvo] = st.ferr[c.alvo] === id && !so ? null : id;
+    invDirty = true; save(); if (typeof enviarPos === 'function') enviarPos(true);
+  }
+  // máscara (ou capacete) em cima da cabeça de cada pose; de costas só os capacetes aparecem
+  function drawMascara(id, sprite, cx, bottom, h, flip, dir) {
+    const c = COSMETICOS.find(q => q.id === id);
+    if (!c) return;
+    const view = dir === 0 ? 'front' : dir === 1 ? 'back' : 'side';
+    if (view === 'back' && !c.capacete) return;
+    const r = artRect(id + '_' + view), hb = ATLAS['head_' + sprite], sr = artRect(sprite);
+    if (!r || !hb || !sr) return;
+    const k = h / sr[3], w = sr[2] * k;
+    const hx = flip ? cx + w / 2 - hb[0] * k : cx - w / 2 + hb[0] * k, top = bottom - h + hb[1] * k, hw = hb[2] * k;
+    const mw = hw * (c.escala || (c.capacete ? 1.3 : 1.02)) * (view === 'side' ? (c.capacete ? 1 : 0.62) : 1), mh = mw * r[3] / r[2];
+    const ox = view === 'side' && !c.capacete ? hw * 0.3 * (dir === 2 ? -1 : 1) : 0;
+    const y = c.alto != null ? top + hw * c.alto : c.capacete ? top - mh * 0.2 : top + hw * 0.22;
+    ctx.save(); ctx.translate(hx + ox, 0); if (dir === 2) ctx.scale(-1, 1);
+    ctx.drawImage(nat(r), 0, 0, r[2], r[3], -mw / 2, y, mw, mh);
+    ctx.restore();
+  }
   // Capacete (folha capacete.png): encaixado no topo da cabeça de cada pose
   function drawHelmet(sprite, cx, bottom, h, flip, dir) {
     const view = dir === 0 ? 'front' : dir === 1 ? 'back' : 'side';
@@ -8180,26 +8291,27 @@
       const d3 = !!ATLAS['d3_' + c];   // personagem 3D: mão exata em cada quadro
       const maoG = d3 && acting ? maoTela(name, sx, sy + 6 * u, ph, flip) : null;
       const golpe3d = acting && maoG && ATLAS['tip_' + name];
-      const toolDrawn = acting && dir === 1 && (golpe3d ? drawGolpe3d(tool, name, maoG, flip) : drawSwing(tool, sx, sy, u, dir, maoG));   // de costas: ferramenta atrás do corpo
+      const toolDrawn = acting && dir === 1 && (golpe3d ? drawGolpe3d(arteFerr(tool), name, maoG, flip) : drawSwing(arteFerr(tool), sx, sy, u, dir, maoG));   // de costas: ferramenta atrás do corpo
       const ranged = (tool === 'arco' || tool === 'cetro' || tool === 'livro') && S.owned[tool];
       const holding = !acting && !em && tool !== 'maos' && tool !== 'muro' && !ranged;
       // de lado e de costas: ferramenta atrás do corpo, com o cabo passando pelo punho
       let grip = null;
-      if (holding && dir !== 0) grip = drawHeld(tool, name, sx, sy + 6 * u, ph, flip, dir, moving, phase);
+      if (holding && dir !== 0) grip = drawHeld(arteFerr(tool), name, sx, sy + 6 * u, ph, flip, dir, moving, phase);
       if (ranged && !em && dir === 1) drawWeapon(tool, name, sx, sy + 6 * u, ph, flip, dir);
       const drawn = andarSim && !flutua ? drawWalker(name, sx, sy + 6 * u, ph, flip, phase) : drawObj(name, sx, sy + 6 * u, ph, flip);
       if (drawn && skA && skA.tinge) drawTinta(name, sx, sy + 6 * u, ph, flip, corSkin(skA.id));   // roupa na cor escolhida
       if (ranged && !em && dir !== 1 && drawn) drawWeapon(tool, name, sx, sy + 6 * u, ph, flip, dir);
       // de frente: pendurada na mão ao lado da perna
-      if (holding && dir === 0 && drawn) grip = drawHeld(tool, name, sx, sy + 6 * u, ph, flip, dir, moving, phase);
+      if (holding && dir === 0 && drawn) grip = drawHeld(arteFerr(tool), name, sx, sy + 6 * u, ph, flip, dir, moving, phase);
       // punho fechado por cima do cabo (de costas a mão fica do outro lado do cabo)
       // 3D: a própria mão do quadro é redesenhada por cima do cabo (os dedos fecham sobre ele)
       if (grip && d3) drawHandOver(name, sx, sy + 6 * u, ph, flip);
       else if (grip && dir !== 1 && !drawFistArt(grip, u) && dir === 0) drawHandOver(name, sx, sy + 6 * u, ph, flip);
       if (efeito) efeitoTema(efeito, sx, sy + pulo, u, false);
       if (drawn) {
-        if (acting && !toolDrawn) { if (golpe3d) drawGolpe3d(tool, name, maoG, flip); else drawSwing(tool, sx, sy, u, dir, maoG); }
+        if (acting && !toolDrawn) { if (golpe3d) drawGolpe3d(arteFerr(tool), name, maoG, flip); else drawSwing(arteFerr(tool), sx, sy, u, dir, maoG); }
         if (acting && d3 && dir !== 1) drawHandOver(name, sx, sy + 6 * u, ph, flip);   // mão por cima do cabo no golpe
+        if (S.cos && S.cos.mascara) drawMascara(S.cos.mascara, name, sx, sy + 6 * u, ph, flip, dir);
         if (wearing('capacete') && !drawHelmet(name, sx, sy + 6 * u, ph, flip, dir)) {   // sem arte do capacete: versão simples
           ctx.fillStyle = '#e3b23c'; ctx.fillRect(sx - 3.6 * u, sy - 17.6 * u - bob, 7.2 * u, 2.4 * u);
           ctx.fillStyle = '#fff6c8'; ctx.fillRect(sx - 1 * u, sy - 17.2 * u - bob, 2 * u, 1.4 * u);
@@ -9939,7 +10051,7 @@
   // A sua terra continua salva como sempre; moedas, mochila, skins e armas vão junto na viagem.
   // Lá ainda não dá para coletar nem construir (recursos vêm do Mercado); os outros jogadores aparecem ao vivo.
   const SEED_CLAS = 777001;
-  const LEVA = ['inv', 'coins', 'kit', 'owned', 'tool', 'char', 'skins', 'skin', 'skinCor', 'hp', 'wxp', 'wbless', 'dur', 'broken', 'playMs', 'aura', 'hints', 'catalog', 'presentes', 'time'];
+  const LEVA = ['inv', 'coins', 'kit', 'owned', 'tool', 'char', 'skins', 'skin', 'skinCor', 'cos', 'hp', 'wxp', 'wbless', 'dur', 'broken', 'playMs', 'aura', 'hints', 'catalog', 'presentes', 'time'];
   let modoClas = false, S_casa = null, mundoClas = null, viajando = false;
   // porto: lagoinha 5×3 com o barco, num gramado livre perto do começo do mapa (o mesmo lugar sempre)
   function acharPorto(s) {
@@ -10121,7 +10233,8 @@
     let r = REMOTOS.get(d.c);
     if (!r) { r = { x, y, phase: 0, gT: 0, g: d.g, bolha: null }; REMOTOS.set(d.c, r); }
     Object.assign(r, { tx: x, ty: y, dir: (d.d | 0) & 3, mov: !!d.m, nome: String(d.n || '?').slice(0, 20), tag: typeof d.tg === 'string' && /^[A-Z0-9]{2,4}$/.test(d.tg) ? d.tg : null,
-      tc: corOk(d.tc), l: String(d.l || ''), sc: corOk(d.sc), tool: String(d.t || ''), e: d.e === 'um' || d.e === 'dois' ? d.e : null, visto: performance.now() });
+      tc: corOk(d.tc), l: String(d.l || ''), sc: corOk(d.sc), tool: String(d.t || ''), e: d.e === 'um' || d.e === 'dois' ? d.e : null, visto: performance.now(),
+      ms: COSMETICOS.some(q => q.id === d.ms && q.tipo === 'mascara') ? d.ms : null, ts: COSMETICOS.some(q => q.id === d.ts && q.tipo === 'ferramenta') ? d.ts : null });
     if (d.g !== r.g) { r.g = d.g; r.gT = performance.now(); }
     if (r.tag && r.tc) CLA.cores[r.tag] = r.tc;
   }
@@ -10130,7 +10243,7 @@
     const p = S.p, sk = skinAtual();
     const d = { c: NET.profile.codigo, n: NET.profile.username, tg: NET.claTag || undefined, tc: CLA.dados ? CLA.dados.cor : undefined, l: look(),
       sc: sk && sk.tinge ? corSkin(sk.id) : undefined, x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, d: p.dir, m: moving ? 1 : 0,
-      t: TOOLS[S.tool].id, g: golpesN, e: S.p.emote && performance.now() < S.p.emote.ate ? S.p.emote.tipo : undefined };
+      t: TOOLS[S.tool].id, ms: (S.cos && S.cos.mascara) || undefined, ts: (S.cos && S.cos.ferr && S.cos.ferr[TOOLS[S.tool].id]) || undefined, g: golpesN, e: S.p.emote && performance.now() < S.p.emote.ate ? S.p.emote.tipo : undefined };
     const chave = JSON.stringify(d), agora = performance.now();
     if (!forcar && (agora - ultimoEnvio < 200 || (chave === ultimoPos && agora - ultimoEnvio < 4000))) return;
     ultimoPos = chave; ultimoEnvio = agora;
@@ -10171,14 +10284,16 @@
     const at = golpe && ATLAS['tip_' + name] ? maoTela(name, sx, bottom, ph, flip) : null;
     const arma = antes => {
       if (!segura) return;
-      if (at) { if ((r.dir === 1) === antes) drawGolpe3d(r.tool, name, at, flip); }
-      else if (!golpe && (r.dir !== 0) === antes) drawHeld(r.tool, name, sx, bottom, ph, flip, r.dir, andando, r.phase);
+      const ta = r.ts && ATLAS['icon_cos_' + r.ts] ? 'cos_' + r.ts : r.tool;   // skin da ferramenta
+      if (at) { if ((r.dir === 1) === antes) drawGolpe3d(ta, name, at, flip); }
+      else if (!golpe && (r.dir !== 0) === antes) drawHeld(ta, name, sx, bottom, ph, flip, r.dir, andando, r.phase);
     };
     arma(true);
     drawObj(name, sx, bottom, ph, flip);
     if (c.startsWith('sk_') && r.sc) drawTinta(name, sx, bottom, ph, flip, r.sc);
     arma(false);
     if (segura && d3 && r.dir !== 1) drawHandOver(name, sx, bottom, ph, flip);
+    if (r.ms) drawMascara(r.ms, name, sx, bottom, ph, flip, r.dir);
     // nome (e sigla do clã) em cima da cabeça
     const ty = bottom - ph - 3 * u;
     ctx.font = `600 ${Math.round(tp * 0.26)}px "Barlow", sans-serif`; ctx.textBaseline = 'middle';
