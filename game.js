@@ -5920,7 +5920,7 @@
   })();
   const thumbCache = new Map();
   // Casas em 3D (tools/build_casas3d.py): quando a folha carrega, o desenho de cada casa troca pelo 3D (página 5)
-  const ATLAS5 = /*ATLAS5_MAP*/{"casa_castelo":[0,0,768,409],"casa_pedra":[770,0,512,267],"casa_saloon":[1284,0,512,261],"casa_cabana":[0,411,512,252],"casa_domo":[514,411,512,195],"casa_choupana":[1028,411,384,175]}/*FIM5*/;
+  const ATLAS5 = /*ATLAS5_MAP*/{"casa_castelo":[0,0,768,427],"casa_pedra":[770,0,512,267],"casa_saloon":[1284,0,512,261],"casa_cabana":[0,429,512,252],"casa_domo":[514,429,512,195],"casa_choupana":[1028,429,384,175]}/*FIM5*/;
   let art5 = null;
   if (Object.keys(ATLAS5).length) {
     const img = new Image();
@@ -5930,8 +5930,8 @@
       for (const d of Object.values(BUILDS)) if (d.tipo === 'casa' && ATLAS5[d.img]) d.arte3d = true;
       thumbCache.clear(); invDirty = true;
     });
-    img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['casas3d-v1.webp'][n]; if (alt) img.src = alt; };
-    img.src = 'assets/casas3d-v1.webp';
+    img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['casas3d-v2.webp'][n]; if (alt) img.src = alt; };
+    img.src = 'assets/casas3d-v2.webp';
   }
   const img2 = r => (r && r[4] === 5 && art5 ? art5 : art2);
   function thumb2(name, w = 56, h = 48) {
