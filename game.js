@@ -6701,11 +6701,34 @@
     VISTA.cx = wx - (sx - cv.clientWidth / 2) / VISTA.z; VISTA.cy = wy - (sy - cv.clientHeight / 2) / VISTA.z;
     desenharMapa();
   }
-  function abrirMapa() { miniBasePronta(true); showSheet('sheet-mapa'); requestAnimationFrame(() => { if (!VISTA.z) { VISTA.cx = S.p.x; VISTA.cy = S.p.y; } desenharMapa(); }); }
+  // equipe: com "Teletransportar" ligado, o próximo toque no mapa leva você exatamente para lá
+  let mapaTp = false;
+  function chaoPerto(cx, cy) {   // o chão livre mais perto (anel por anel)
+    for (let r = 0; r <= 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = cx + dx, y = cy + dy;
+      if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) continue;
+      const t = S.tiles[I(x, y, 0)];
+      if ((t === T.GRASS || t === T.TILLED || t === T.PONTE || (t === T.MAR && S.fundo && S.fundo[y * W + x] <= MAR_RASO)) && !buildBlocks(x + 0.5, y + 0.5)) return [x + 0.5, y + 0.5];
+    }
+    return null;
+  }
+  function marcarTp(v) { mapaTp = v; const b = $('mapa-tp'); b.textContent = v ? 'Toque no mapa para ir…' : 'Teletransportar'; b.classList.toggle('btn-danger', v); b.classList.toggle('btn-gold', !v); }
+  $('mapa-tp').addEventListener('click', () => marcarTp(!mapaTp));
+  function abrirMapa(tp) { miniBasePronta(true); $('mapa-tp').hidden = !(NET.enabled ? NET.isStaff : true); marcarTp(!!tp && !$('mapa-tp').hidden); showSheet('sheet-mapa'); requestAnimationFrame(() => { if (!VISTA.z) { VISTA.cx = S.p.x; VISTA.cy = S.p.y; } desenharMapa(); }); }
   setInterval(() => { if (openSheet && openSheet.id === 'sheet-mapa') desenharMapa(); }, 500);
   function tocarMapa(sx, sy) {
     const cv = $('mapa'), z = VISTA.z;
     const x = VISTA.cx + (sx - cv.clientWidth / 2) / z, y = VISTA.cy + (sy - cv.clientHeight / 2) / z;
+    if (mapaTp) {
+      const pos = chaoPerto(Math.floor(x), Math.floor(y));
+      marcarTp(false);
+      if (!pos) { toast('Não achei chão livre ali: tente um pouco ao lado', 'warn'); return; }
+      S.p.x = pos[0]; S.p.y = pos[1]; S.p.z = 0; homing = null; interior = null;
+      for (let k = 0; k < 20; k++) waterTick();
+      closeSheet(); toast(`Teletransportado: ${BIOMES[regionOf(S.p.x, S.p.y)].nome} (${Math.floor(S.p.x)}, ${Math.floor(S.p.y)})`, 'leaf'); sfx('magia'); enviarPos(true);
+      return;
+    }
     const perto = marcas.findIndex(m => Math.hypot(m.x + 0.5 - x, m.y + 0.5 - (y + 8 / z)) * z < 24);   // o alfinete fica acima do ponto
     if (perto >= 0) { marcas.splice(perto, 1); toast('Marca tirada'); }
     else if (marcas.length >= MARCAS_MAX) { toast(`Até ${MARCAS_MAX} marcas: toque numa para tirar`, 'warn'); return; }
@@ -6741,7 +6764,7 @@
     cv.addEventListener('pointerup', soltar); cv.addEventListener('pointercancel', soltar);
     cv.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = pos(e); mapaZoom(e.deltaY < 0 ? 1.25 : 0.8, x, y); }, { passive: false });
   }
-  $('mini').addEventListener('click', abrirMapa);
+  $('mini').addEventListener('click', () => abrirMapa(false));
   $('mapa-mais').addEventListener('click', () => mapaZoom(1.6));
   $('mapa-menos').addEventListener('click', () => mapaZoom(1 / 1.6));
   $('mapa-eu').addEventListener('click', () => { VISTA.cx = S.p.x; VISTA.cy = S.p.y; if (VISTA.z < mapaMinZ() * 3) VISTA.z = mapaMinZ() * 4; desenharMapa(); });
@@ -6972,7 +6995,7 @@
         const b = e.target.closest('[data-st]');
         if (!b) return;
         const v = b.dataset.st;
-        if (v === 'tp') { adminMove = 'tp'; renderAdmin(); $('minimap').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+        if (v === 'tp') { closeSheet(); setTimeout(() => abrirMapa(true), 60); return; }   // mapa com zoom: aproxime e toque no lugar exato
         if (v === 'equip') { adminEquipSalvar(); renderAdmin(); return; }
         if (v === 'robos') { adminRobosSalvar(); renderAdmin(); return; }
         if (v === 'terras') {
@@ -7012,7 +7035,7 @@
     const admin = !NET.enabled || NET.isAdmin;
     const cores = admin ? ['vermelha', 'preta', 'roxa', 'verde', 'dourada'] : ['verde'];
     let html = '<div class="section-label">Equipe</div><div class="confirm-row">'
-      + '<button type="button" class="btn btn-gold" data-st="tp">Teletransportar (toque no mapa)</button></div>'
+      + '<button type="button" class="btn btn-gold" data-st="tp">Teletransportar (abre o mapa com zoom)</button></div>'
       + '<p class="muted small-text">Aura em volta de você (os jogadores verão no multiplayer):</p><div class="confirm-row">'
       + `<button type="button" class="btn ${!S.aura ? 'btn-gold' : ''}" data-st="aura:off">Sem aura</button>`
       + cores.map(c => `<button type="button" class="btn ${S.aura === c ? 'btn-gold' : ''}" data-st="aura:${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('') + '</div>';
@@ -7508,7 +7531,7 @@
     const x = Math.round((e.clientX - rect.left) / rect.width * W), y = Math.round((e.clientY - rect.top) / rect.height * H);
     if (adminMove === 'tp') {   // teleporte da equipe
       adminMove = null;
-      const pos = grassNear(clamp(x, 3, W - 4), clamp(y, 3, H - 4), 0, 10);
+      const pos = chaoPerto(clamp(x, 3, W - 4), clamp(y, 3, H - 4));
       if (!pos) { toast('Não achei chão livre ali', 'warn'); return; }
       S.p.x = pos[0]; S.p.y = pos[1]; S.p.z = 0; homing = null; interior = null;
       for (let k = 0; k < 20; k++) waterTick();
