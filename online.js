@@ -153,7 +153,12 @@
     chat.geral = sb.channel('tf-geral', cfg).on('broadcast', { event: 'msg' }, ({ payload }) => onMsg(payload)).subscribe(st => { T.chatReady = st === 'SUBSCRIBED'; });
     chat.caixa = sb.channel('tf-dm-' + T.profile.codigo, cfg).on('broadcast', { event: 'msg' }, ({ payload }) => onMsg(payload)).subscribe();
   };
-  const meuNome = () => (T.isAdmin ? 'Equipe' : T.profile.username);   // o administrador continua invisível
+  // Equipe (administrador e moderadores): modo invisível ligado/desligado neste aparelho. Ligado = ninguém vê no mapa
+  // e, se for o administrador, no chat aparece como "Equipe". Desligado = joga como qualquer um (com o nome do disfarce, se tiver).
+  T.invisivelLigado = () => { if (!T.isStaff) return false; try { const v = localStorage.getItem('terra-funda-invisivel'); return v == null ? T.isAdmin : v === '1'; } catch (e) { return T.isAdmin; } };
+  T.setInvisivel = v => { try { localStorage.setItem('terra-funda-invisivel', v ? '1' : '0'); } catch (e) { /* tudo bem */ } };
+  T.disfarce = async nome => { const n = await rpc('staff_disfarce', { p_nome: nome || null }); if (T.profile && n) T.profile.username = n; return n; };
+  const meuNome = () => (T.isAdmin && T.invisivelLigado() ? 'Equipe' : T.profile.username);
   function enviar(canal, payload) {
     return new Promise((ok, falha) => {
       if (canal === 'tf-geral' && chat.geral) { chat.geral.send({ type: 'broadcast', event: 'msg', payload }).then(ok, falha); return; }
@@ -175,7 +180,7 @@
     const agora = Date.now();
     if (agora - chat.ultimo < 1500) throw new Error('Espere um pouco antes de mandar outra mensagem');
     chat.ultimo = agora;
-    const msg = { de: T.profile.codigo, nome: meuNome(), texto, tipo, t: agora, para: tipo === 'privado' ? destinos : undefined, tag: T.isAdmin ? undefined : T.claTag || undefined };
+    const msg = { de: T.profile.codigo, nome: meuNome(), texto, tipo, t: agora, para: tipo === 'privado' ? destinos : undefined, tag: T.isAdmin && T.invisivelLigado() ? undefined : T.claTag || undefined };
     if (tipo === 'todos') await enviar('tf-geral', msg);
     else if (tipo === 'cla') { if (!chat.cla) throw new Error('Você não está em um clã'); await enviar('tf-cla-' + chat.claId, msg); }
     else for (const c of destinos) await enviar('tf-dm-' + c, msg);

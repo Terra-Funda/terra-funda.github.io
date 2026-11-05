@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Pixelify+Sans:wght@400;600&display=swap">
-<link rel="stylesheet" href="style.css?v=106">
+<link rel="stylesheet" href="style.css?v=107">
 </head>
 <body>
 <div id="app">
@@ -196,6 +196,7 @@
       <div class="menu-list">
         <p class="account" id="account-line" hidden></p>
         <button type="button" class="btn btn-gold" id="btn-staff" hidden>Painel da equipe</button>
+        <button type="button" class="btn" id="btn-invisivel" hidden>👁 Invisível</button>
         <button type="button" class="btn" id="btn-cla">Clã</button>
         <button type="button" class="btn" id="btn-mercado">Mercado</button>
         <button type="button" class="btn" id="btn-denunciar">Denunciar jogador</button>
@@ -285,6 +286,12 @@
         </div>
         <div class="list" id="admin-players"></div>
       </div>
+      <div id="staff-disfarce" hidden>
+        <div class="section-label">Nome disfarçado (para se infiltrar)</div>
+        <p class="muted small-text">Os jogadores veem você com este nome no mapa, no chat, nos clãs e nos terrenos, sem saber que é da equipe. Nome atual: <b id="disfarce-atual"></b>. Para sumir do mapa, use o botão 👁 Invisível no Menu.</p>
+        <div class="field"><input id="disfarce-nome" maxlength="20" placeholder="Novo nome (3 a 20 letras)" autocomplete="off"></div>
+        <div class="list-actions"><button type="button" class="btn btn-gold" id="disfarce-salvar">Usar este nome</button><button type="button" class="btn" id="disfarce-voltar">Voltar ao nome real</button></div>
+      </div>
       <div id="admin-world">
       <div class="section-label">Jazidas de recursos importantes</div>
       <div class="list" id="admin-deposits"></div>
@@ -334,7 +341,7 @@
 </div>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="online.js?v=106"></script>
-<script src="game.js?v=106"></script>
+<script src="online.js?v=107"></script>
+<script src="game.js?v=107"></script>
 </body>
 </html>
