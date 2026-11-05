@@ -7978,7 +7978,7 @@
   // Ferramenta na mão enquanto anda ou fica parado (o golpe usa drawSwing).
   // O ponto da mão de cada pose e o cabo de cada ferramenta vêm do atlas (tools/build_atlas.py).
   // A ferramenta é desenhada atrás do personagem: a mão fica por cima do cabo e parece segurar.
-  const HOLD_ANGLE = [1.82, -1.15, -0.75, -0.75];   // de frente: pendurada na mão, cabeça para baixo   // direção cabo→ponta (para a esquerda é espelhado)
+  const HOLD_ANGLE = [-1.05, -1.15, -0.95, -0.95];   // de frente é espelhado: a cabeça vai para fora, longe do rosto   // todas com a cabeça para cima, mostrando o lado largo (lâmina para fora/frente)   // direção cabo→ponta (para a esquerda é espelhado)
   // Desenha a ferramenta com o cabo no ponto da mão e devolve esse ponto (ou null)
   function drawHeld(tool, sprite, cx, bottom, h, flip, dir, moving, phase) {
     const r = artRect('icon_' + tool), g = ATLAS['grip_' + tool], hp = ATLAS['hand_' + sprite], sr = artRect(sprite);
@@ -7987,18 +7987,18 @@
     const hx = flip ? cx + w / 2 - hp[0] * k : cx - w / 2 + hp[0] * k;
     const hy = bottom - h + hp[1] * k;
     const len = Math.hypot(g[2] - g[0], g[3] - g[1]);
-    const s = (dir === 0 ? 0.5 : 0.62) * tp / len;   // de frente, pendurada, um pouco menor
+    const s = (dir === 0 ? 0.66 : 0.72) * tp / len;
     const want = HOLD_ANGLE[dir] + (moving ? Math.sin(phase) * 0.1 : 0);
     ctx.save();
     ctx.translate(hx, hy);
-    if (dir === 2) ctx.scale(-1, 1);   // virado para a esquerda: espelha, a lâmina continua para a frente
+    if (dir === 2 || dir === 0) ctx.scale(-1, 1);   // para a esquerda (e de frente, na mão do lado esquerdo da tela): espelha
     ctx.rotate(want - Math.atan2(g[3] - g[1], g[2] - g[0]));
     ctx.scale(s, s);
     // de frente a mão segura perto da ponta do cabo (o atlas guarda a pegada a 30% do cabo)
-    const gx = dir === 0 && g.length > 4 ? g[4] : g[0], gy = dir === 0 && g.length > 4 ? g[5] : g[1];
+    const gx = g[0], gy = g[1];
     ctx.drawImage(nat(r), 0, 0, r[2], r[3], -gx, -gy, r[2], r[3]);
     ctx.restore();
-    return [hx, hy, dir === 2 ? Math.PI - want : want];
+    return [hx, hy, dir === 2 || dir === 0 ? Math.PI - want : want];
   }
   // Redesenha só o punho (do próprio sprite) por cima do cabo: os dedos fecham sobre ele
   function drawHandOver(sprite, cx, bottom, h, flip) {
