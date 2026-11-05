@@ -747,6 +747,10 @@
     if (d.tipo === 'casa' || d.tipo === 'forte') {
       const a = d.w / 2, bb = d.h / 2, cx = b.x + a, cy = b.y + bb;
       const dd = Math.abs(px - cx) / a + Math.abs(py - cy) / bb;
+      if (d.tipo === 'casa' && d.arte3d) {   // casa em 3D: a parede é o retângulo do terreno dela
+        const rx = Math.abs(px - cx) - a, ry = Math.abs(py - cy) - bb;
+        return rx <= 0.15 && ry <= 0.1 ? 'solid' : null;
+      }
       if (d.tipo === 'casa') {
         // casa: entra pelo botão, então não há passagem na porta; a parede vale um pouco além do desenho
         if (dd > 1) return Math.abs(px - cx) / (a + 0.45) + Math.abs(py - cy) / (bb + 0.3) <= 1 ? 'solid' : null;
@@ -5915,13 +5919,28 @@
     img.src = window.TERRA_ATLAS2 || 'assets/estruturas-v4.webp';
   })();
   const thumbCache = new Map();
+  // Casas em 3D (tools/build_casas3d.py): quando a folha carrega, o desenho de cada casa troca pelo 3D (página 5)
+  const ATLAS5 = /*ATLAS5_MAP*/{"casa_castelo":[0,0,768,409],"casa_pedra":[770,0,512,267],"casa_saloon":[1284,0,512,261],"casa_cabana":[0,411,512,252],"casa_domo":[514,411,512,195],"casa_choupana":[1028,411,384,175]}/*FIM5*/;
+  let art5 = null;
+  if (Object.keys(ATLAS5).length) {
+    const img = new Image();
+    img.onload = () => fixarImagem(img, im => {
+      art5 = im;
+      for (const [k, v] of Object.entries(ATLAS5)) ATLAS2[k] = [v[0], v[1], v[2], v[3], 5];
+      for (const d of Object.values(BUILDS)) if (d.tipo === 'casa' && ATLAS5[d.img]) d.arte3d = true;
+      thumbCache.clear(); invDirty = true;
+    });
+    img.onerror = () => { const n = +(img.dataset.tent || 0); img.dataset.tent = n + 1; const alt = ['casas3d-v1.webp'][n]; if (alt) img.src = alt; };
+    img.src = 'assets/casas3d-v1.webp';
+  }
+  const img2 = r => (r && r[4] === 5 && art5 ? art5 : art2);
   function thumb2(name, w = 56, h = 48) {
     if (!art2 || !ATLAS2[name]) return '';
     const key = name + w;
     if (!thumbCache.has(key)) {
       const r = ATLAS2[name], cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       const c = cv.getContext('2d'), s2 = Math.min((w - 2) / r[2], (h - 2) / r[3]);
-      c.drawImage(art2, r[0], r[1], r[2], r[3], (w - r[2] * s2) / 2, (h - r[3] * s2) / 2, r[2] * s2, r[3] * s2);
+      c.drawImage(img2(r), r[0], r[1], r[2], r[3], (w - r[2] * s2) / 2, (h - r[3] * s2) / 2, r[2] * s2, r[3] * s2);
       try { thumbCache.set(key, cv.toDataURL()); } catch (e) { thumbCache.set(key, ''); }
     }
     const url = thumbCache.get(key);
@@ -8477,8 +8496,8 @@
     if (alpha !== 1) ctx.globalAlpha = alpha;
     if (r) {
       const [x, y, w, h] = buildRect(b, name, camX, camY);
-      if (b.flip && !d.gira) { ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(art2, r[0], r[1], r[2], r[3], 0, 0, w, h); ctx.restore(); }
-      else ctx.drawImage(art2, r[0], r[1], r[2], r[3], x, y, w, h);
+      if (b.flip && !d.gira) { ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(img2(r), r[0], r[1], r[2], r[3], 0, 0, w, h); ctx.restore(); }
+      else ctx.drawImage(img2(r), r[0], r[1], r[2], r[3], x, y, w, h);
     } else {   // sem a arte: só a forma, para continuar jogável
       const x0 = b.x * tp - camX, y0 = b.y * tp - camY, w = d.w * tp, h = d.h * tp;
       ctx.fillStyle = d.tipo === 'forte' ? 'rgba(110,90,70,0.35)' : '#8a5a32';
