@@ -10317,7 +10317,7 @@
   const minhaBase = () => (CLA.dados ? TER.bases.find(b => b.cla === CLA.dados.id) : null);
   // terrenos dos jogadores: 35 × 35 (17 blocos do centro para cada lado), até 3 por jogador; amigos do dono também constroem
   const TERRENO_R = 17, TERRENO_PRECO = 5000, TERRENO_MAX = 3;
-  const KIT_TERRENO = new Set(['casa', 'movel', 'torre', 'armadilha']);
+  const KIT_TERRENO = new Set(['casa', 'movel', 'torre', 'armadilha', 'maquina', 'banca']);
   const terrenoEm = (x, y) => TER.terrenos.find(t => Math.abs(x - t.x) <= TERRENO_R && Math.abs(y - t.y) <= TERRENO_R);
   const meusTerrenos = () => TER.terrenos.filter(t => t.meu);
   // pode remover/girar: quem construiu, o dono do terreno ou alguém do clã (o servidor confere o cargo)
@@ -10494,6 +10494,12 @@
       const k = o.k.slice(4), d = BUILDS[k], dd = o.dados && typeof o.dados === 'object' ? o.dados : {};
       const b = { k, x: o.x, y: o.y, obra: id, ter: o.ter, dono: o.dono || '?', acesso: dd.acesso === 'todos' ? 'todos' : 'so_eu' };
       if (d.gira) b.rot = (o.rot | 0) & 3;
+      if (d.tipo === 'maquina') {   // máquina: o estado da produção fica no servidor (só o dono mexe)
+        const m = dd.maq && typeof dd.maq === 'object' ? dd.maq : {}, est = {};
+        for (const [it, q] of Object.entries(m.est || {})) if (ITEMS[it] && q > 0) est[it] = Math.min(99999, q | 0);
+        Object.assign(b, { ult: isFinite(m.ult) ? +m.ult : Date.now(), usado: Math.max(0, m.usado | 0), prontos: Math.max(0, m.prontos | 0), est, quebrada: !!m.quebrada });
+      }
+      if (d.tipo === 'banca') { b.uid = typeof dd.uid === 'string' && /^[a-z0-9]{4,16}$/.test(dd.uid) ? dd.uid : 'o' + id; if (typeof dd.nome === 'string') b.nome = dd.nome.slice(0, 30); }
       if (dd.room && Array.isArray(dd.room.itens)) b.room = { piso: PISOS[dd.room.piso] ? dd.room.piso : 'madeira', parede: PAREDES[dd.room.parede] ? dd.room.parede : 'creme', itens: dd.room.itens.filter(it => it && BUILDS[it.k]).slice(0, 400) };
       S.builds.push(b);
       for (let yy = o.y; yy < o.y + d.h; yy++) for (let xx = o.x; xx < o.x + d.w; xx++) {
@@ -10599,6 +10605,7 @@
       const id = String(await NET.terrasConstruir2('kit:' + k, c.x, c.y, c.rot, d.w, d.h));
       const o = { id, cla: ter ? null : meuClaId(), ter: ter ? ter.id : null, k: 'kit:' + k, x: c.x, y: c.y, rot: c.rot, dono: myId(), dados: null };
       TER.obras.set(id, o); obraPor(o); sfx('construir'); toast(`${d.nome}: pronto`, 'gold');
+      if (d.tipo === 'maquina' || d.tipo === 'banca') { const nb = S.builds.find(q => q.obra === id); if (nb) terrasSalvarCasa(nb); }
       if (d.tipo === 'casa') hint('casa', 'Chegue perto da porta e toque em Entrar. Lá dentro, toque em Decorar.');
       NET.terrasEnviar('o', {});
     } catch (e) { S.kit[k] = (S.kit[k] || 0) + 1; toast(e.message, 'warn', 3500); }
@@ -10622,6 +10629,7 @@
   async function terrasRemoverObra(id) {
     const o = TER.obras.get(id);
     if (!o) return;
+    if (/^kit:/.test(o.k) && (BUILDS[o.k.slice(4)] || {}).tipo === 'maquina') { toast('Equipamentos não podem ser guardados: colete a produção e, quando der defeito, faça a troca', 'warn', 4000); return; }
     try { await NET.terrasRemover(+id); } catch (e) { toast(e.message, 'warn', 3500); return; }
     const txt = terrasDevolver(o);
     obraTirar(o); TER.obras.delete(id);
@@ -10629,9 +10637,12 @@
     sfx('desaba'); NET.terrasEnviar('o', {}); invDirty = true; save();
   }
   // casa de terreno: guarda a decoração e quem entra no servidor (todos veem igual)
-  function terrasSalvarCasa(b) {
+  function terrasSalvarCasa(b) {   // casa (decoração e entrada), máquina (produção) ou banca (nome e código da loja)
     if (!modoClas || !b || !b.obra || b.dono !== myId() || !NET.terrasObraDados) return;
-    const dados = { acesso: b.acesso === 'todos' ? 'todos' : 'so_eu', room: b.room || null }, o = TER.obras.get(b.obra);
+    const tipo = (BUILDS[b.k] || {}).tipo, o = TER.obras.get(b.obra);
+    const dados = tipo === 'maquina' ? { maq: { ult: b.ult, usado: b.usado | 0, prontos: b.prontos | 0, est: b.est || {}, quebrada: !!b.quebrada } }
+      : tipo === 'banca' ? { uid: b.uid, nome: b.nome || undefined }
+      : { acesso: b.acesso === 'todos' ? 'todos' : 'so_eu', room: b.room || null };
     if (o) o.dados = JSON.parse(JSON.stringify(dados));
     NET.terrasObraDados(+b.obra, dados).then(() => NET.terrasEnviar('o', {}), e => toast(e.message, 'warn', 3500));
   }
@@ -11373,8 +11384,8 @@
     if (b.prontos >= c.acumula) b.ult = agora;
   }
   function equipNaFrente(x, y) {
-    if (S.p.z !== 0 || modoClas) return null;
-    return S.builds.find(b => { const t = BUILDS[b.k].tipo; return (t === 'maquina' || t === 'banca') && (shapeHit(b, x + 0.5, y + 0.5) || shapeHit(b, S.p.x, S.p.y - 0.6)); }) || null;
+    if (S.p.z !== 0 || (modoClas && !online())) return null;
+    return S.builds.find(b => { const t = BUILDS[b.k].tipo; return (t === 'maquina' || t === 'banca') && (!modoClas || b.dono === myId()) && (shapeHit(b, x + 0.5, y + 0.5) || shapeHit(b, S.p.x, S.p.y - 0.6)); }) || null;
   }
   let equipAberto = null;
   function abrirEquip(b) { txAberta = false; equipAberto = b; $('equip-titulo').textContent = BUILDS[b.k].nome; showSheet('sheet-equip'); renderEquip(); }
@@ -11426,6 +11437,7 @@
     if ((e.target.id === 'banca-qtd' || e.target.id === 'banca-preco') && $('banca-total'))
       $('banca-total').innerHTML = `<b>Total: ${coinsTxt(Math.max(1, Math.floor(+$('banca-qtd').value || 1)) * Math.max(1, Math.floor(+$('banca-preco').value || 1)))}</b>`;
   });
+  $('equip-body').addEventListener('click', () => setTimeout(() => { const b = equipAberto; if (b && modoClas && b.obra) terrasSalvarCasa(b); }, 900));   // no mundo de todos, guarda no servidor
   $('equip-body').addEventListener('click', async e => {
     const bt = e.target.closest('[data-eq]'), b = equipAberto;
     if (!bt || !b) return;
