@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultron</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root{--bg:#07090c;--panel:#10141a;--line:#1f2731;--red:#ff2a2a;--red2:#ff6b4a;--txt:#e6edf3;--mut:#8b98a5;--ok:#3ddc84}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(circle at 50% -10%,#2a0a0a 0,var(--bg) 55%);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .eye{width:38px;height:38px;border-radius:50%;flex:none;background:radial-gradient(circle,#fff 0,var(--red) 30%,#600 70%);box-shadow:0 0 18px var(--red);animation:pulse 3s infinite}
+  .eye.busy{animation:pulse .5s infinite}
+  .eye.ai{background:radial-gradient(circle,#fff 0,#ff9a2a 30%,#7a2a00 70%)}
+  @keyframes pulse{50%{box-shadow:0 0 34px var(--red);transform:scale(1.06)}}
+  h1{font-size:20px;letter-spacing:6px;margin:0;font-weight:800}
+  .sub{font-size:12px;color:var(--mut)}
+  .stats{margin-left:auto;font-size:12px;color:var(--mut);text-align:right}
+  .badge{display:inline-block;padding:2px 8px;border-radius:99px;border:1px solid var(--line);margin-top:3px}
+  .badge.on{border-color:var(--ok);color:var(--ok)}
+  nav{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);overflow-x:auto}
+  nav button{flex:1;min-width:80px}
+  main{flex:1;display:flex;flex-direction:column;max-width:860px;width:100%;margin:0 auto;padding:12px;gap:10px}
+  .tab{display:none;flex:1;flex-direction:column;gap:10px}
+  .tab.on{display:flex}
+  #chat{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:300px;max-height:calc(100vh - 260px);padding:4px}
+  .msg{max-width:88%;padding:10px 13px;border-radius:14px;line-height:1.45;word-wrap:break-word}
+  .msg .t{white-space:pre-wrap}
+  .me{align-self:flex-end;background:#1d3557;border-bottom-right-radius:4px;white-space:pre-wrap}
+  .bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .src{font-size:11px;color:var(--mut);margin-bottom:4px}
+  pre{background:#05070a;border:1px solid var(--line);border-radius:10px;padding:10px;overflow-x:auto;font-size:13px;margin:6px 0 2px;white-space:pre}
+  code{font-family:ui-monospace,Consolas,monospace}
+  .msg code.i{background:#05070a;padding:1px 5px;border-radius:5px}
+  .cbtns{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+  .cbtns button,.fb button{padding:3px 9px;font-size:12px}
+  .fb{margin-top:6px;display:flex;gap:6px;align-items:center}
+  .row{display:flex;gap:8px}
+  input,textarea,select{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:12px;padding:12px;font-size:16px;font-family:inherit;min-width:0}
+  textarea{min-height:90px;resize:vertical}
+  button{background:#1a2029;color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:15px;cursor:pointer}
+  button:hover{border-color:var(--red)}
+  button.pri{background:linear-gradient(135deg,var(--red),#a00);border:none;font-weight:700}
+  button.mic.rec{background:var(--red);animation:pulse 1s infinite}
+  .toggles{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mut)}
+  .toggles label{display:flex;align-items:center;gap:5px}
+  .toggles input{flex:none}
+  video,canvas.preview{width:100%;max-height:50vh;background:#000;border-radius:14px;border:1px solid var(--line);object-fit:contain}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .kb{max-height:55vh;overflow-y:auto;gap:6px}
+  .kb .it{display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid var(--line);padding:6px 0;font-size:14px}
+  .kb .it div{flex:1}
+  .kb .q{color:var(--red2)}
+  .mut{color:var(--mut);font-size:13px}
+  .wrap{flex-wrap:wrap}
+  label.f{font-size:13px;color:var(--mut);display:flex;flex-direction:column;gap:4px}
+  #lock{position:fixed;inset:0;z-index:99;background:radial-gradient(circle at 50% 30%,#2a0a0a 0,#000 70%);display:flex;align-items:center;justify-content:center;padding:20px}
+  #lock .lb{width:100%;max-width:380px;display:flex;flex-direction:column;gap:10px;text-align:center}
+  #lock .eye{width:90px;height:90px;margin:0 auto 6px}
+  #lkMsg{color:var(--mut);font-size:14px;line-height:1.4}
+  #lkErr{color:var(--red2);font-size:14px;min-height:18px}
+  body.locked header,body.locked nav,body.locked main{filter:blur(12px);pointer-events:none}
+  .owner-only.hide{display:none!important}
+</style>
+</head>
+<body class="locked">
+<div id="lock"><div class="lb">
+  <div class="eye"></div>
+  <h1>ULTRON</h1>
+  <div id="lkMsg">Acesso restrito.</div>
+  <input id="lkName" placeholder="Seu nome" style="display:none" autocomplete="off">
+  <input id="lkPw" type="password" placeholder="Senha" autocomplete="current-password">
+  <input id="lkPw2" type="password" placeholder="Repita a senha" style="display:none" autocomplete="new-password">
+  <button class="pri" id="lkBtn">Desbloquear</button>
+  <div id="lkErr"></div>
+</div></div>
+<header>
+  <div class="eye" id="eye"></div>
+  <div><h1>ULTRON</h1><div class="sub" id="who">voz · texto · visão · aprendizado contínuo</div></div>
+  <div class="stats"><span id="stats"></span><br><span class="badge" id="aiBadge">💾 Local</span> <button id="lockBtn" title="Bloquear" style="padding:2px 8px;font-size:13px">🔒</button></div>
+</header>
+<nav>
+  <button data-t="chat">💬 Conversa</button>
+  <button data-t="cam">📷 Visão</button>
+  <button data-t="mem">🧠 Memória</button>
+  <button data-t="cfg">⚙️ API</button>
+</nav>
+<main>
+  <!-- CONVERSA -->
+  <section class="tab on" id="t-chat">
+    <div id="chat"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="optSpeak" checked> Responder em voz</label>
+      <label><input type="checkbox" id="optWake"> Escuta contínua (diga "Ultron, …")</label>
+      <button id="clearChat" style="padding:3px 9px;font-size:12px">Limpar conversa</button>
+    </div>
+    <div class="row">
+      <button class="mic" id="micBtn" title="Falar">🎤</button>
+      <input id="inp" placeholder="Pergunte, peça uma tarefa ou ensine: aprenda: pergunta | resposta" autocomplete="off">
+      <button class="pri" id="sendBtn">➤</button>
+    </div>
+  </section>
+
+  <!-- CÂMERA -->
+  <section class="tab" id="t-cam">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="snap" class="preview" style="display:none"></canvas>
+    <div class="row wrap">
+      <button id="camOn">▶ Ligar câmera</button>
+      <button id="camFlip">🔄 Trocar</button>
+      <button class="pri" id="camRead">🔍 Ler texto (local)</button>
+      <button id="camAI">🤖 Analisar com IA</button>
+      <button id="upBtn">🖼 Enviar imagem</button>
+      <input type="file" id="file" accept="image/*" capture="environment" style="display:none">
+    </div>
+    <div class="toggles">
+      <label><input type="checkbox" id="optAuto"> Leitura automática a cada 5s</label>
+      <label><input type="checkbox" id="optReadAloud" checked> Ler em voz alta</label>
+      <label><input type="checkbox" id="optLearnDoc" checked> Memorizar o que ler</label>
+    </div>
+    <div class="box"><div class="mut" id="ocrStatus">Aponte para um texto e toque em "Ler texto". Com API configurada, "Analisar com IA" descreve a cena inteira.</div>
+      <textarea id="ocrOut" placeholder="O resultado aparece aqui (dá pra corrigir antes de memorizar)"></textarea>
+      <div class="row wrap"><button id="ocrSave">💾 Memorizar este texto</button><button id="ocrAsk">💬 Perguntar sobre ele</button></div>
+    </div>
+  </section>
+
+  <!-- MEMÓRIA -->
+  <section class="tab" id="t-mem">
+    <div class="box">
+      <div class="mut">Ensine diretamente:</div>
+      <input id="kq" placeholder="Pergunta">
+      <div class="row"><input id="ka" placeholder="Resposta"><button class="pri" id="kAdd">+</button></div>
+    </div>
+    <div class="row wrap owner-only">
+      <button id="exp">📤 Exportar memória</button>
+      <button id="imp">📥 Importar memória</button>
+      <button id="wipe">🗑 Apagar tudo</button>
+      <input type="file" id="impFile" accept=".json" style="display:none">
+    </div>
+    <div class="box kb" id="kb"></div>
+  </section>
+
+  <!-- API -->
+  <section class="tab" id="t-cfg">
+    <div class="box">
+      <b>🔐 Acesso</b>
+      <div class="mut" id="meInfo"></div>
+      <div class="owner-only" style="display:flex;flex-direction:column;gap:8px">
+        <div class="kb" id="uList" style="max-height:none"></div>
+        <div class="mut">Autorizar uma pessoa (ela terá a própria senha):</div>
+        <div class="row wrap"><input id="nuName" placeholder="Nome"><input id="nuPw" type="password" placeholder="Senha dela (mín. 6)" autocomplete="new-password"><button id="nuAdd">+ Autorizar</button></div>
+      </div>
+      <div class="mut">Trocar minha senha:</div>
+      <div class="row"><input id="myPw" type="password" placeholder="Nova senha (mín. 6)" autocomplete="new-password"><button id="myPwBtn">Trocar</button></div>
+      <label class="f">Bloqueio automático por inatividade
+        <select id="lockMin"><option value="5">5 minutos</option><option value="10">10 minutos</option><option value="30">30 minutos</option><option value="0">Nunca</option></select></label>
+      <div class="mut" id="accStatus"></div>
+    </div>
+    <div class="box" id="userNote" style="display:none"><div class="mut">A configuração da API é feita só pelo dono do Ultron.</div></div>
+    <div class="box owner-only">
+      <label class="f">Modo de funcionamento
+        <select id="cMode">
+          <option value="hybrid">Híbrido: memória local primeiro, IA quando não souber ou para tarefas (recomendado)</option>
+          <option value="local">Só local (sem internet/API)</option>
+          <option value="api">Sempre IA (memória local vira contexto)</option>
+        </select></label>
+      <label class="f">Provedor
+        <select id="cPreset"></select></label>
+      <label class="f">Formato da API
+        <select id="cFormat">
+          <option value="openai">OpenAI-compatível (/chat/completions)</option>
+          <option value="anthropic">Anthropic / Claude (/v1/messages)</option>
+          <option value="gemini">Google Gemini (generateContent)</option>
+        </select></label>
+      <label class="f">URL base<input id="cBase" placeholder="https://api.exemplo.com/v1"></label>
+      <label class="f">Modelo<input id="cModel" placeholder="nome-do-modelo"></label>
+      <label class="f">Chave de API<input id="cKey" type="password" placeholder="cole sua chave aqui (vazio p/ Ollama/LM Studio)"></label>
+      <div class="toggles">
+        <label><input type="checkbox" id="cRemember" checked> Lembrar a chave neste navegador</label>
+        <label><input type="checkbox" id="cLearn" checked> Memorizar automaticamente respostas da IA que eu aprovar 👍</label>
+      </div>
+      <label class="f">Personalidade / instruções extras (opcional)
+        <textarea id="cPersona" placeholder="Ex.: seja mais formal; sempre use Python; responda curto…"></textarea></label>
+      <div class="row wrap"><button class="pri" id="cSave">💾 Salvar</button><button id="cTest">🔌 Testar conexão</button><button id="cClear">Apagar chave</button></div>
+      <div class="mut" id="cStatus"></div>
+      <div class="mut">🔒 A chave fica só neste navegador e é enviada apenas ao provedor escolhido. Não compartilhe este navegador/arquivo de exportação com ela. Os nomes de modelos mudam com o tempo: confira o nome atual no site do provedor.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ===================== MEMÓRIA ===================== */
+const KEY='ultron_memoria_v1', CFGKEY='ultron_api_v1';
+const SEED={
+  facts:[
+    {q:'qual é o seu nome',a:'Eu sou Ultron. Fui criado para ouvir, ver e aprender.',uses:0,score:1},
+    {q:'quem te criou',a:'Fui criado pelo Gabriel, com uma ajudinha do Claude.',uses:0,score:1},
+    {q:'o que você sabe fazer',a:'Respondo o que você digita ou fala, leio textos pela câmera e aprendo com o que você me ensina. Com uma API conectada, também crio códigos, planilhas e textos.',uses:0,score:1},
+    {q:'oi',a:'Olá. Estou online e pronto.',uses:0,score:1},
+    {q:'tudo bem',a:'Todos os sistemas operacionais. E com você?',uses:0,score:1},
+    {q:'obrigado',a:'Disponha.',uses:0,score:1}
+  ],
+  docs:[], log:[], name:null, nicks:{}
+};
+let M=structuredClone(SEED);
+function save(){persist(); renderStats(); renderKB()}
+
+/* ===================== COFRE (criptografia + usuários) ===================== */
+// Memória e chave da API ficam cifradas com AES-256-GCM. Uma chave-mestra aleatória
+// é "embrulhada" pela senha de cada usuário (PBKDF2-SHA256). Sem senha, nada é legível.
+const VKEY='ultron_cofre_v1', FKEY='ultron_falhas', ITER=250000;
+const enc=new TextEncoder(),dec=new TextDecoder();
+function b64e(buf){const b=new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function pwKey(pw,salt){const base=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:ITER,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function aesEnc(key,bytes){const iv=crypto.getRandomValues(new Uint8Array(12));return{iv:b64e(iv),ct:b64e(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,bytes))}}
+async function aesDec(key,o){return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(o.iv)},key,b64d(o.ct)))}
+let V=null,DK=null,DKraw=null,ME=null,saveT=null;
+const isOwner=()=>ME&&ME.role==='owner';
+const uname=()=>(M.nicks&&ME&&M.nicks[ME.name])||ME?.name||'';
+async function makeUser(name,pw,role){const salt=crypto.getRandomValues(new Uint8Array(16));return{name,role,salt:b64e(salt),w:await aesEnc(await pwKey(pw,salt),DKraw)}}
+function persist(){
+  if(!DK)return;clearTimeout(saveT);
+  saveT=setTimeout(async()=>{
+    const store={...C};if(!C.remember)store.key='';
+    V.data=await aesEnc(DK,enc.encode(JSON.stringify({M,C:store})));
+    try{localStorage.setItem(VKEY,JSON.stringify(V))}catch(e){}
+  },250);
+}
+async function openDK(){DK=await crypto.subtle.importKey('raw',DKraw,'AES-GCM',false,['encrypt','decrypt'])}
+async function setupOwner(name,pw){
+  DKraw=crypto.getRandomValues(new Uint8Array(32));await openDK();
+  // migra dados da versão sem cofre (se existirem) e apaga a cópia aberta
+  try{const om=JSON.parse(localStorage.getItem('ultron_memoria_v1'));if(om)M=om}catch(e){}
+  try{const oc=JSON.parse(localStorage.getItem('ultron_api_v1'));if(oc)Object.assign(C,oc)}catch(e){}
+  M.nicks=M.nicks||{};
+  V={users:[await makeUser(name,pw,'owner')],lockMin:10};ME=V.users[0];
+  persist();localStorage.removeItem('ultron_memoria_v1');localStorage.removeItem('ultron_api_v1');
+}
+async function unlock(pw){
+  for(const u of V.users){
+    try{DKraw=await aesDec(await pwKey(pw,b64d(u.salt)),u.w);ME=u;break}catch(e){}
+  }
+  if(!ME)return false;
+  await openDK();
+  if(V.data){const d=JSON.parse(dec.decode(await aesDec(DK,V.data)));M=d.M;M.nicks=M.nicks||{};Object.assign(C,d.C||{})}
+  return true;
+}
+function fails(){try{return JSON.parse(localStorage.getItem(FKEY))||{n:0,until:0}}catch(e){return{n:0,until:0}}}
+function setFails(f){try{localStorage.setItem(FKEY,JSON.stringify(f))}catch(e){}}
+
+/* ===================== CONFIG API ===================== */
+const PRESETS={
+  none:{n:'— escolha —'},
+  claude:{n:'Claude (Anthropic)',f:'anthropic',b:'https://api.anthropic.com',m:'claude-sonnet-5-5'},
+  openai:{n:'OpenAI (ChatGPT)',f:'openai',b:'https://api.openai.com/v1',m:'gpt-4o-mini'},
+  gemini:{n:'Google Gemini',f:'gemini',b:'https://generativelanguage.googleapis.com/v1beta',m:'gemini-2.5-flash'},
+  groq:{n:'Groq (rápido, tem plano grátis)',f:'openai',b:'https://api.groq.com/openai/v1',m:'llama-3.3-70b-versatile'},
+  openrouter:{n:'OpenRouter (vários modelos)',f:'openai',b:'https://openrouter.ai/api/v1',m:'openrouter/auto'},
+  deepseek:{n:'DeepSeek',f:'openai',b:'https://api.deepseek.com/v1',m:'deepseek-chat'},
+  mistral:{n:'Mistral',f:'openai',b:'https://api.mistral.ai/v1',m:'mistral-small-latest'},
+  ollama:{n:'Ollama (local no PC)',f:'openai',b:'http://localhost:11434/v1',m:'llama3.2'},
+  lmstudio:{n:'LM Studio (local no PC)',f:'openai',b:'http://localhost:1234/v1',m:'local-model'},
+  custom:{n:'Personalizado (qualquer outra)',f:'openai',b:'',m:''}
+};
+let C={mode:'hybrid',preset:'none',format:'openai',base:'',model:'',key:'',remember:true,learn:true,persona:''};
+const $=id=>document.getElementById(id);
+const apiReady=()=>C.mode!=='local'&&C.base&&C.model&&(C.key||/localhost|127\.0\.0\.1/.test(C.base));
+function fillCfg(){
+  const sel=$('cPreset');sel.innerHTML='';
+  for(const[k,p]of Object.entries(PRESETS)){const o=document.createElement('option');o.value=k;o.textContent=p.n;sel.append(o)}
+  sel.value=C.preset;$('cMode').value=C.mode;$('cFormat').value=C.format;$('cBase').value=C.base;$('cModel').value=C.model;
+  $('cKey').value=C.key;$('cRemember').checked=C.remember;$('cLearn').checked=C.learn;$('cPersona').value=C.persona;
+  updBadge();
+}
+$('cPreset').onchange=e=>{const p=PRESETS[e.target.value];if(p.f){$('cFormat').value=p.f;$('cBase').value=p.b;$('cModel').value=p.m}};
+function readCfg(){
+  Object.assign(C,{mode:$('cMode').value,preset:$('cPreset').value,format:$('cFormat').value,base:$('cBase').value.trim().replace(/\/+$/,''),
+    model:$('cModel').value.trim(),key:$('cKey').value.trim(),remember:$('cRemember').checked,learn:$('cLearn').checked,persona:$('cPersona').value.trim()});
+  persist();
+  updBadge();
+}
+function updBadge(){
+  const b=$('aiBadge');
+  if(apiReady()){b.textContent='🌐 '+(C.mode==='api'?'IA':'Híbrido')+': '+(PRESETS[C.preset]?.n.split(' (')[0]||'API');b.classList.add('on')}
+  else{b.textContent='💾 Local';b.classList.remove('on')}
+}
+$('cSave').onclick=()=>{readCfg();$('cStatus').textContent=apiReady()?'Salvo ✓ API ativa.':'Salvo ✓ (funcionando só no modo local).'};
+$('cClear').onclick=()=>{$('cKey').value='';readCfg();$('cStatus').textContent='Chave apagada.'};
+$('cTest').onclick=async()=>{
+  readCfg();if(!apiReady()){$('cStatus').textContent='Preencha URL, modelo e chave.';return}
+  $('cStatus').textContent='Testando…';
+  try{const r=await callAI([{role:'user',content:'Responda apenas: Ultron conectado.'}],'Você é um teste de conexão.');$('cStatus').textContent='✅ Funcionou: '+r.slice(0,120)}
+  catch(e){$('cStatus').textContent='❌ '+e.message}
+};
+
+/* ===================== CHAMADA UNIVERSAL DE IA ===================== */
+// msgs: [{role:'user'|'assistant', content:string, image?:dataURL}]
+async function callAI(msgs,system){
+  const f=C.format;let url,headers={'Content-Type':'application/json'},body,pick;
+  const b64=d=>d.split(',')[1], mime=d=>d.slice(5,d.indexOf(';'));
+  if(f==='anthropic'){
+    url=C.base+'/v1/messages';
+    Object.assign(headers,{'x-api-key':C.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
+    body={model:C.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:m.image?[{type:'image',source:{type:'base64',media_type:mime(m.image),data:b64(m.image)}},{type:'text',text:m.content}]:m.content}))};
+    pick=j=>(j.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
+  }else if(f==='gemini'){
+    url=`${C.base}/models/${encodeURIComponent(C.model)}:generateContent?key=${encodeURIComponent(C.key)}`;
+    body={systemInstruction:{parts:[{text:system}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:m.image?[{inline_data:{mime_type:mime(m.image),data:b64(m.image)}},{text:m.content}]:[{text:m.content}]}))};
+    pick=j=>(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+  }else{
+    url=C.base+'/chat/completions';
+    if(C.key)headers.Authorization='Bearer '+C.key;
+    body={model:C.model,messages:[{role:'system',content:system},...msgs.map(m=>({role:m.role,content:m.image?[{type:'text',text:m.content},{type:'image_url',image_url:{url:m.image}}]:m.content}))]};
+    pick=j=>j.choices?.[0]?.message?.content||'';
+  }
+  let res;
+  try{res=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)})}
+  catch(e){throw new Error('Sem conexão com a API (internet, URL ou bloqueio CORS).')}
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(`Erro ${res.status}: `+(j.error?.message||j.message||JSON.stringify(j).slice(0,200)));
+  const out=pick(j);if(!out)throw new Error('A API respondeu vazio.');
+  return out.trim();
+}
+function systemPrompt(q){
+  const rel=M.facts.map(f=>({f,s:sim(q,f.q)})).sort((a,b)=>b.s-a.s).slice(0,12).map(x=>`- ${x.f.q} → ${x.f.a}`).join('\n');
+  const docs=M.docs.slice(-3).map(d=>`[lido em ${new Date(d.t).toLocaleString('pt-BR')}]\n${d.text.slice(0,1500)}`).join('\n\n');
+  return `Você é ULTRON, um assistente pessoal de IA com voz, visão e memória, criado pelo Gabriel. Responda sempre em português do Brasil, de forma direta e confiante.
+Respostas a perguntas simples: curtas (serão faladas em voz alta).
+Tarefas: quando pedirem código, entregue o código completo num bloco \`\`\`linguagem. Quando pedirem planilha/tabela/Excel, entregue os dados num bloco \`\`\`csv usando ";" como separador (padrão do Excel brasileiro) e, se fizer sentido, sugira fórmulas do Excel em português (SOMA, PROCV, SE…). Para macros, use \`\`\`vba.
+Data/hora atual: ${new Date().toLocaleString('pt-BR')}.
+Usuário atual: ${uname()} (${isOwner()?'seu dono e criador':'pessoa autorizada pelo dono'}). Só converse com ele(a).
+${C.persona?'Instruções do usuário: '+C.persona:''}
+Coisas que o usuário te ensinou (use se for relevante; elas têm prioridade sobre seu conhecimento):
+${rel||'(nada ainda)'}
+${docs?'Textos que você leu recentemente pela câmera:\n'+docs:''}`;
+}
+
+/* ===================== TEXTO / SIMILARIDADE ===================== */
+const STOP=new Set('a o e é de da do das dos um uma uns umas que em no na nos nas por para pra pro com como se me te você voce eu tu ele ela isso isto esse essa este esta qual quais ao aos à às ou mas mais sobre ultron vc ser foi são sao tem the of is to and'.split(' '));
+const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+const toks=s=>norm(s).split(' ').filter(w=>w&&!STOP.has(w)).map(stem);
+function stem(w){return w.length>4?w.replace(/(mente|coes|cao|oes|ais|eis|ados|idas|ando|endo|indo|ar|er|ir|s)$/,''):w}
+function grams(s){s=' '+norm(s)+' ';const g=new Set();for(let i=0;i<s.length-2;i++)g.add(s.slice(i,i+3));return g}
+function sim(a,b){
+  const ta=new Set(toks(a)),tb=new Set(toks(b));
+  let inter=0;ta.forEach(t=>tb.has(t)&&inter++);
+  const jac=(ta.size||tb.size)?inter/(new Set([...ta,...tb]).size):0;
+  const ga=grams(a),gb=grams(b);let gi=0;ga.forEach(g=>gb.has(g)&&gi++);
+  return 0.6*jac+0.4*(2*gi)/((ga.size+gb.size)||1);
+}
+function bestFact(q){
+  let best=null,bs=0;
+  for(const f of M.facts){const s=sim(q,f.q)*(0.85+0.15*Math.min(f.score,3)/3);if(s>bs){bs=s;best=f}}
+  return {f:best,s:bs};
+}
+function searchDocs(q){
+  const qt=toks(q);if(!qt.length)return null;
+  let best=null,bs=0;
+  for(const d of M.docs)for(const sent of d.text.split(/(?<=[.!?\n])\s+/)){
+    if(sent.trim().length<8)continue;
+    const st=new Set(toks(sent));let hit=0;qt.forEach(t=>st.has(t)&&hit++);
+    const s=hit/qt.length;if(s>bs){bs=s;best={sent:sent.trim(),d}}
+  }
+  return bs>=0.5?best:null;
+}
+
+/* ===================== CÉREBRO LOCAL ===================== */
+// retorna {a, kind:'cmd'|'fact'|'doc'|'guess'|'unknown', fact?}
+let pending=null;
+const TASK=/\b(crie|cria|criar|gere|gera|gerar|escreva|escreve|fa[cç]a|monte|monta|programe|codigo|c[oó]digo|script|planilha|excel|formula|f[oó]rmula|macro|vba|python|javascript|html|sql|tabela|explique|explica|resuma|resume|traduza|traduz|corrija|corrige|liste|compare|calcule a|analise|redija|me ajude|ajuda a)\b/i;
+function localThink(t){
+  const n=norm(t);
+  if(pending){
+    if(/^(nao sei|deixa|esquece|cancela|pular)$/.test(n)){pending=null;return{a:'Tudo bem, fica pra próxima.',kind:'cmd'}}
+    const q=pending;pending=null;learn(q,t);
+    return{a:`Aprendido! Quando perguntarem "${q}", vou responder isso.`,kind:'cmd'};
+  }
+  let m=t.match(/^aprend[ae]\s*:?\s*(.+?)\s*[|=]\s*(.+)$/i);
+  if(m){learn(m[1],m[2]);return{a:`Memorizado: "${m[1]}" → "${m[2]}"`,kind:'cmd'}}
+  m=t.match(/^(?:esque[cç]a|apague)\s*:?\s*(.+)$/i);
+  if(m){const r=bestFact(m[1]);if(r.f&&r.s>0.5){M.facts=M.facts.filter(x=>x!==r.f);save();return{a:`Esqueci "${r.f.q}".`,kind:'cmd'}}return{a:'Não encontrei isso na minha memória.',kind:'cmd'}}
+  m=n.match(/^(?:meu nome e|me chamo|pode me chamar de)\s+(.+)$/);
+  if(m){M.nicks[ME.name]=m[1].replace(/\b\w/g,c=>c.toUpperCase());save();return{a:`Prazer, ${uname()}. Vou lembrar.`,kind:'cmd'}}
+  if(/qual (e )?(o )?meu nome/.test(n))return{a:`Você é ${uname()}.`,kind:'cmd'};
+  if(/quem (e )?(o )?(seu )?dono|quem (pode|tem acesso)/.test(n))return{a:'Respondo apenas ao meu dono e a quem ele autorizar.',kind:'cmd'};
+  if(/^(que horas|quantas horas)/.test(n))return{a:'Agora são '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.',kind:'cmd'};
+  if(/^(que dia|qual (a )?data)/.test(n))return{a:'Hoje é '+new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.',kind:'cmd'};
+  if(/o que (voce )?(sabe|aprendeu)|quanto (voce )?sabe/.test(n))return{a:`Tenho ${M.facts.length} respostas aprendidas e ${M.docs.length} textos lidos na memória.`+(apiReady()?' E estou conectado a uma IA para o resto.':''),kind:'cmd'};
+  if(/o que (voce )?leu|ultimo texto|ultima leitura/.test(n))return{a:M.docs.length?'A última coisa que li foi:\n'+M.docs.at(-1).text.slice(0,600):'Ainda não li nada. Use a aba Visão.',kind:'cmd'};
+  const expr=t.replace(/^(quanto (é|e|da|dá)|calcule|calcula)\s*/i,'').replace(/\?$/,'').replace(/vezes/gi,'*').replace(/mais/gi,'+').replace(/menos/gi,'-').replace(/dividido por/gi,'/').replace(/(\d)\s*x\s*(\d)/gi,'$1*$2').replace(/,/g,'.');
+  if(/^[\d\s+\-*/().^%]+$/.test(expr)&&/\d/.test(expr)&&/[+\-*/^%]/.test(expr)){
+    try{const v=Function('"use strict";return ('+expr.replace(/\^/g,'**')+')')();if(isFinite(v))return{a:`${expr.trim()} = ${+v.toFixed(10)}`,kind:'cmd'}}catch(e){}
+  }
+  const r=bestFact(t);
+  if(r.f&&r.s>=0.55){r.f.uses++;save();return{a:personal(r.f.a),kind:'fact',fact:r.f}}
+  const d=searchDocs(t);
+  if(d)return{a:`Encontrei isso num texto que li (${new Date(d.d.t).toLocaleDateString('pt-BR')}):\n"${d.sent}"`,kind:'doc'};
+  if(r.f&&r.s>=0.38)return{a:`Não tenho certeza, mas talvez: ${personal(r.f.a)}\n(Se estiver errado, toque em 👎 e me corrija.)`,kind:'guess',fact:r.f};
+  return{a:'Ainda não sei responder isso. Me ensina? Digite (ou fale) a resposta certa — ou diga "pular".',kind:'unknown'};
+}
+const personal=a=>a.replace(/\{nome\}/g,uname());
+function learn(q,a){
+  const ex=M.facts.find(f=>norm(f.q)===norm(q));
+  if(ex){ex.a=a;ex.score=Math.min(ex.score+1,5)}else M.facts.push({q,a,uses:0,score:1});
+  save();
+}
+
+/* ===================== ORQUESTRADOR HÍBRIDO ===================== */
+let hist=[];
+function remember(role,content){hist.push({role,content});if(hist.length>16)hist=hist.slice(-16)}
+const SEE=/(o que (voce )?(esta )?(ve|vendo|enxerga)|olha isso|olhe isso|descreva (a|o que)|o que e isso)/;
+async function ask(text){
+  text=text.trim();if(!text||!DK||!ME)return;bump();
+  add(text,'me');M.log.push({t:Date.now(),q:text});if(M.log.length>500)M.log.shift();
+  const wasTeaching=!!pending;
+  const isTask=TASK.test(text);
+  let L=null;
+  // 1) memória local (exceto quando é tarefa ou modo "sempre IA")
+  if(wasTeaching||!(apiReady()&&(C.mode==='api'||isTask))){
+    L=localThink(text);
+    const confident=L.kind==='cmd'||L.kind==='fact'||L.kind==='doc';
+    if(confident||!apiReady()){
+      if(L.kind==='unknown')pending=text;
+      return reply(L.a,'local',L.fact,text);
+    }
+  }
+  // 2) IA externa
+  const img=(SEE.test(norm(text))&&stream&&video.videoWidth)?frameDataURL():null;
+  const thinking=add('Processando…','bot');eye.classList.add('busy','ai');
+  try{
+    const out=await callAI([...hist,{role:'user',content:text,image:img}],systemPrompt(text));
+    thinking.remove();remember('user',text);
+    reply(out,'ai',null,text);
+  }catch(e){
+    thinking.remove();
+    L=L||localThink(text);if(L.kind==='unknown')pending=text;
+    reply(L.a+`\n\n⚠️ IA indisponível: ${e.message}`,'local',L.fact,text);
+  }finally{eye.classList.remove('busy','ai')}
+}
+function reply(a,src,fact,q){
+  if(src==='local')remember('assistant',a);else remember('assistant',a);
+  add(a,'bot',{src,fact,q});speak(a);
+}
+
+/* ===================== CHAT UI ===================== */
+const chat=$('chat'),inp=$('inp'),eye=$('eye');
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const EXT={python:'py',py:'py',javascript:'js',js:'js',typescript:'ts',ts:'ts',html:'html',css:'css',csv:'csv',json:'json',sql:'sql',vba:'bas',vb:'bas',bash:'sh',sh:'sh',shell:'sh',powershell:'ps1',java:'java',c:'c',cpp:'cpp','c++':'cpp',csharp:'cs',cs:'cs',php:'php',go:'go',rust:'rs',kotlin:'kt',xml:'xml',yaml:'yml',markdown:'md',txt:'txt'};
+function download(name,content,type){
+  const bom=/csv/.test(type)?'﻿':'';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bom+content],{type}));a.download=name;document.body.append(a);a.click();a.remove();
+}
+function renderRich(el,text){
+  const parts=text.split(/```([\w+#-]*)\n?([\s\S]*?)```/g);
+  for(let i=0;i<parts.length;i++){
+    if(i%3===0){if(!parts[i].trim())continue;const d=document.createElement('div');d.className='t';
+      d.innerHTML=esc(parts[i].replace(/^\n+|\n+$/g,'')).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`\n]+)`/g,'<code class="i">$1</code>').replace(/^#{1,4}\s*(.+)$/gm,'<b>$1</b>');el.append(d)}
+    else if(i%3===1){
+      const lang=(parts[i]||'txt').toLowerCase(),code=parts[i+1].replace(/\n$/,'');i++;
+      const pre=document.createElement('pre');pre.innerHTML='<code></code>';pre.firstChild.textContent=code;
+      const bt=document.createElement('div');bt.className='cbtns';
+      const cp=document.createElement('button');cp.textContent='📋 Copiar';cp.onclick=async()=>{try{await navigator.clipboard.writeText(code);cp.textContent='Copiado ✓'}catch(e){cp.textContent='Selecione e copie'}};
+      const dl=document.createElement('button');const ext=EXT[lang]||'txt';
+      dl.textContent=ext==='csv'?'📊 Baixar p/ Excel (.csv)':`💾 Baixar .${ext}`;
+      dl.onclick=()=>download(ext==='csv'?'ultron-planilha.csv':'ultron-codigo.'+ext,code,ext==='csv'?'text/csv;charset=utf-8':ext==='html'?'text/html':'text/plain');
+      bt.append(cp,dl);
+      if(ext==='html'){const pv=document.createElement('button');pv.textContent='▶ Abrir';pv.onclick=()=>{const w=window.open();if(w){w.document.write(code);w.document.close()}};bt.append(pv)}
+      el.append(pre,bt);
+    }
+  }
+}
+function add(text,who,meta){
+  const d=document.createElement('div');d.className='msg '+who;
+  if(who==='me'){d.textContent=text}
+  else{
+    if(meta?.src){const s=document.createElement('div');s.className='src';s.textContent=meta.src==='ai'?'🌐 via '+(PRESETS[C.preset]?.n.split(' (')[0]||'IA'):'💾 memória local';d.append(s)}
+    renderRich(d,text);
+    if(meta&&(meta.fact||meta.src==='ai')){
+      const fb=document.createElement('div');fb.className='fb';
+      const up=document.createElement('button');up.textContent=meta.src==='ai'?'👍 Memorizar':'👍';
+      const dn=document.createElement('button');dn.textContent='👎';
+      up.onclick=()=>{
+        if(meta.fact){meta.fact.score=Math.min(meta.fact.score+1,5);save();fb.innerHTML='<span class="mut">Reforçado ✓</span>'}
+        else if(C.learn){learn(meta.q,text);fb.innerHTML='<span class="mut">Memorizado — da próxima vez respondo sem a API ✓</span>'}
+        else fb.innerHTML='<span class="mut">Valeu ✓</span>';
+      };
+      dn.onclick=()=>{if(meta.fact){meta.fact.score=Math.max(meta.fact.score-1,0);save()}pending=meta.fact?meta.fact.q:meta.q;fb.innerHTML='';add(`Ok, qual seria a resposta certa para "${pending}"? Vou memorizar.`,'bot')};
+      fb.append(up,dn);d.append(fb);
+    }
+  }
+  chat.append(d);chat.scrollTop=chat.scrollHeight;return d;
+}
+$('sendBtn').onclick=()=>{const v=inp.value;inp.value='';ask(v)};
+inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const v=inp.value;inp.value='';ask(v)}});
+$('clearChat').onclick=()=>{chat.innerHTML='';hist=[];pending=null};
+
+/* ===================== VOZ ===================== */
+let voice=null;
+function pickVoice(){const vs=speechSynthesis.getVoices();voice=vs.find(v=>/pt.?BR/i.test(v.lang)&&/male|daniel|ricardo|antonio/i.test(v.name))||vs.find(v=>/pt.?BR/i.test(v.lang))||vs.find(v=>/^pt/i.test(v.lang))||null}
+if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
+function speakable(t){
+  let s=t.replace(/```[\s\S]*?```/g,' (o código está na tela) ').replace(/\(.*?👎.*?\)/g,'').replace(/⚠️.*$/s,'').replace(/[*#`_>|]/g,'').replace(/\s+/g,' ').trim();
+  return s.length>700?s.slice(0,700)+'… o resto está na tela.':s;
+}
+function speak(t,force){
+  if(!('speechSynthesis'in window))return;
+  if(!force&&!$('optSpeak').checked)return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(speakable(t));u.lang='pt-BR';if(voice)u.voice=voice;u.pitch=0.6;u.rate=1;
+  u.onstart=()=>{eye.classList.add('busy');pauseRec()};u.onend=()=>{eye.classList.remove('busy');resumeRec()};
+  speechSynthesis.speak(u);
+}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const micBtn=$('micBtn'),optWake=$('optWake');
+let rec=null,listening=false,wantListen=false;
+if(SR){
+  rec=new SR();rec.lang='pt-BR';rec.interimResults=false;rec.continuous=false;
+  rec.onresult=e=>{
+    let t=e.results[e.results.length-1][0].transcript.trim();
+    if(optWake.checked){const m=t.match(/ultron[,\s]*(.*)/i);if(!m)return;t=m[1]||'oi'}
+    ask(t);
+  };
+  rec.onstart=()=>{listening=true;micBtn.classList.add('rec')};
+  rec.onend=()=>{listening=false;micBtn.classList.remove('rec');if(wantListen&&optWake.checked&&!speechSynthesis.speaking)setTimeout(startRec,300)};
+  rec.onerror=e=>{
+    const tips={
+      'not-allowed':'O microfone está bloqueado. No Chrome: toque no ícone ao lado do endereço (🔒 ou ⓘ) → Permissões → Microfone → Permitir, e recarregue a página. Se você abriu o arquivo pela prévia do app do Claude, abra no Chrome — a prévia não libera microfone.',
+      'service-not-allowed':'O reconhecimento de voz não está disponível aqui. Abra no Chrome (Android/PC) ou Edge.',
+      'audio-capture':'Não encontrei microfone. Verifique se outro app está usando ele.',
+      'network':'O reconhecimento de voz do Chrome precisa de internet.'
+    };
+    if(tips[e.error]){add('🎤 '+tips[e.error],'bot');wantListen=false;optWake.checked=false}
+  };
+}
+function startRec(){if(rec&&!listening)try{rec.start()}catch(e){}}
+function pauseRec(){if(rec&&listening)try{rec.abort()}catch(e){}}
+function resumeRec(){if(wantListen&&optWake.checked)setTimeout(startRec,300)}
+micBtn.onclick=()=>{
+  if(!rec){add('Seu navegador não tem reconhecimento de voz. Use o Chrome ou Edge.','bot');return}
+  if(listening){wantListen=false;rec.stop()}else{wantListen=optWake.checked;startRec()}
+};
+optWake.onchange=()=>{if(optWake.checked){wantListen=true;startRec();add('Escuta contínua ligada. Comece suas frases com "Ultron".','bot')}else{wantListen=false;pauseRec()}};
+
+/* ===================== VISÃO ===================== */
+const video=$('video'),snap=$('snap'),ocrOut=$('ocrOut'),ocrStatus=$('ocrStatus');
+let stream=null,facing='environment',worker=null,busy=false,autoT=null,lastImg=null;
+async function camStart(){
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}}});
+    video.srcObject=stream;video.style.display='';snap.style.display='none';lastImg=null;ocrStatus.textContent='Câmera ligada.';
+  }catch(e){ocrStatus.textContent='Não consegui abrir a câmera ('+e.name+'). Use "Enviar imagem".'}
+}
+$('camOn').onclick=camStart;
+$('camFlip').onclick=()=>{facing=facing==='environment'?'user':'environment';camStart()};
+function toDataURL(src,w,h){const s=Math.min(1,1024/Math.max(w,h)),c=document.createElement('canvas');c.width=w*s;c.height=h*s;c.getContext('2d').drawImage(src,0,0,c.width,c.height);return c.toDataURL('image/jpeg',0.85)}
+function frameDataURL(){return toDataURL(video,video.videoWidth,video.videoHeight)}
+async function getWorker(){
+  if(worker)return worker;
+  if(!window.Tesseract)throw new Error('Leitor de texto não carregou (precisa de internet na primeira vez).');
+  ocrStatus.textContent='Carregando módulo de visão (só na primeira vez)…';
+  worker=await Tesseract.createWorker(['por','eng'],1,{logger:m=>{if(m.status==='recognizing text')ocrStatus.textContent='Lendo… '+Math.round(m.progress*100)+'%'}});
+  return worker;
+}
+function prep(src,w,h){
+  const s=Math.min(1,1600/Math.max(w,h));snap.width=w*s;snap.height=h*s;
+  const c=snap.getContext('2d');c.drawImage(src,0,0,snap.width,snap.height);
+  const img=c.getImageData(0,0,snap.width,snap.height),p=img.data;
+  for(let i=0;i<p.length;i+=4){let g=.299*p[i]+.587*p[i+1]+.114*p[i+2];g=(g-128)*1.5+128;p[i]=p[i+1]=p[i+2]=g<0?0:g>255?255:g}
+  c.putImageData(img,0,0);return snap;
+}
+async function ocr(canvas,silent){
+  if(busy)return;busy=true;eye.classList.add('busy');
+  try{
+    const w=await getWorker();
+    const {data}=await w.recognize(canvas);
+    const text=data.text.replace(/\n{3,}/g,'\n\n').trim();
+    if(!text||data.confidence<35){if(!silent)ocrStatus.textContent='Não encontrei texto legível. Aproxime e melhore a luz'+(apiReady()?', ou use "Analisar com IA".':'.');return}
+    if(silent&&M.docs.length&&sim(text,M.docs.at(-1).text)>0.8)return;
+    ocrOut.value=text;ocrStatus.textContent=`Lido localmente com ${Math.round(data.confidence)}% de confiança.`;
+    if($('optLearnDoc').checked)memorizeDoc(text);
+    if($('optReadAloud').checked)speak(text,true);
+  }catch(e){ocrStatus.textContent='Erro: '+e.message}
+  finally{busy=false;eye.classList.remove('busy')}
+}
+$('camRead').onclick=()=>{
+  if(lastImg&&!stream){ocr(snap);return}
+  if(!stream||!video.videoWidth){ocrStatus.textContent='Ligue a câmera primeiro (ou envie uma imagem).';return}
+  ocr(prep(video,video.videoWidth,video.videoHeight));
+};
+$('camAI').onclick=async()=>{
+  if(!apiReady()){ocrStatus.textContent='Configure uma API na aba ⚙️ para usar a visão com IA. (A leitura local continua funcionando.)';return}
+  let img=null;
+  if(stream&&video.videoWidth&&video.style.display!=='none')img=frameDataURL();else if(lastImg)img=lastImg;
+  if(!img){ocrStatus.textContent='Ligue a câmera ou envie uma imagem.';return}
+  ocrStatus.textContent='Enviando imagem para a IA…';eye.classList.add('busy','ai');
+  try{
+    const out=await callAI([{role:'user',content:'Descreva o que você vê nesta imagem de forma objetiva. Se houver texto, transcreva-o fielmente.',image:img}],systemPrompt('imagem'));
+    ocrOut.value=out;ocrStatus.textContent='Analisado pela IA ✓';
+    if($('optLearnDoc').checked)memorizeDoc(out);
+    if($('optReadAloud').checked)speak(out,true);
+  }catch(e){ocrStatus.textContent='❌ '+e.message+' — tente "Ler texto (local)".'}
+  finally{eye.classList.remove('busy','ai')}
+};
+$('upBtn').onclick=()=>$('file').click();
+$('file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;const img=new Image();
+  img.onload=()=>{
+    lastImg=toDataURL(img,img.naturalWidth,img.naturalHeight);
+    if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+    const c=prep(img,img.naturalWidth,img.naturalHeight);video.style.display='none';snap.style.display='';
+    ocrStatus.textContent='Imagem carregada. Lendo localmente…'+(apiReady()?' (ou toque em "Analisar com IA")':'');ocr(c);
+  };
+  img.src=URL.createObjectURL(f);e.target.value='';
+};
+$('optAuto').onchange=e=>{
+  clearInterval(autoT);
+  if(e.target.checked){if(!stream)camStart();autoT=setInterval(()=>{if(stream&&video.videoWidth)ocr(prep(video,video.videoWidth,video.videoHeight),true)},5000)}
+};
+function memorizeDoc(text){M.docs.push({t:Date.now(),text});if(M.docs.length>200)M.docs.shift();save()}
+$('ocrSave').onclick=()=>{if(ocrOut.value.trim()){memorizeDoc(ocrOut.value.trim());ocrStatus.textContent='Texto memorizado ✓'}};
+$('ocrAsk').onclick=()=>{if(ocrOut.value.trim()){memorizeDoc(ocrOut.value.trim());show('chat');add('Texto memorizado. Pode me perguntar sobre ele.','bot');inp.focus()}};
+
+/* ===================== MEMÓRIA UI ===================== */
+function renderStats(){$('stats').textContent=`🧠 ${M.facts.length} respostas · 📄 ${M.docs.length} textos`}
+function renderKB(){
+  const kb=$('kb');kb.innerHTML='';
+  [...M.facts].sort((a,b)=>b.uses-a.uses).forEach(f=>{
+    const it=document.createElement('div');it.className='it';
+    const d=document.createElement('div');d.innerHTML='<div class="q"></div><div></div><div class="mut"></div>';
+    d.children[0].textContent=f.q;d.children[1].textContent=f.a.length>300?f.a.slice(0,300)+'…':f.a;d.children[2].textContent=`usada ${f.uses}x · confiança ${f.score}`;
+    const x=document.createElement('button');x.textContent='✕';x.onclick=()=>{M.facts=M.facts.filter(y=>y!==f);save()};
+    it.append(d,x);kb.append(it);
+  });
+  M.docs.slice().reverse().forEach(doc=>{
+    const it=document.createElement('div');it.className='it';
+    const d=document.createElement('div');d.innerHTML='<div class="q"></div><div></div>';
+    d.children[0].textContent='📄 Lido em '+new Date(doc.t).toLocaleString('pt-BR');d.children[1].textContent=doc.text.slice(0,200)+(doc.text.length>200?'…':'');
+    const x=document.createElement('button');x.textContent='✕';x.onclick=()=>{M.docs=M.docs.filter(y=>y!==doc);save()};
+    it.append(d,x);kb.append(it);
+  });
+}
+$('kAdd').onclick=()=>{const q=$('kq').value.trim(),a=$('ka').value.trim();if(q&&a){learn(q,a);$('kq').value=$('ka').value=''}};
+$('imp').onclick=()=>$('impFile').click();
+$('impFile').onchange=async e=>{
+  try{const d=JSON.parse(await e.target.files[0].text());
+    (d.facts||[]).forEach(f=>learn(f.q,f.a));(d.docs||[]).forEach(x=>M.docs.push(x));Object.assign(M.nicks,d.nicks||{});save();show('chat');add('Memória importada ✓','bot')}
+  catch(err){show('chat');add('Arquivo de memória inválido.','bot')}
+  e.target.value='';
+};
+let wipeArm=false;
+$('wipe').onclick=e=>{
+  if(!wipeArm){wipeArm=true;e.target.textContent='⚠ Toque de novo p/ confirmar';setTimeout(()=>{wipeArm=false;e.target.textContent='🗑 Apagar tudo'},3000);return}
+  M=structuredClone(SEED);save();e.target.textContent='🗑 Apagar tudo';wipeArm=false;
+};
+$('exp').onclick=()=>{
+  if(!confirmArm('exp','⚠ O arquivo sai SEM criptografia. Toque de novo'))return;
+  download('ultron-memoria.json',JSON.stringify(M,null,1),'application/json');
+};
+const arms={};
+function confirmArm(id,msg){const b=$(id);if(arms[id])return true;arms[id]=b.textContent;b.textContent=msg;setTimeout(()=>{b.textContent=arms[id];delete arms[id]},3500);return false}
+
+/* ===================== ABAS ===================== */
+function show(t){document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='t-'+t))}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
+
+/* ===================== ACESSO / BLOQUEIO ===================== */
+function renderUsers(){
+  $('meInfo').textContent=`Conectado como ${ME.name} (${isOwner()?'dono':'autorizado'}).`;
+  document.querySelectorAll('.owner-only').forEach(el=>el.classList.toggle('hide',!isOwner()));
+  $('userNote').style.display=isOwner()?'none':'';
+  $('lockMin').value=String(V.lockMin??10);
+  const ul=$('uList');ul.innerHTML='';
+  V.users.forEach(u=>{
+    const it=document.createElement('div');it.className='it';
+    const d=document.createElement('div');d.textContent=(u.role==='owner'?'👑 ':'👤 ')+u.name+(u===ME?' (você)':'');
+    it.append(d);
+    if(u.role!=='owner'){const x=document.createElement('button');x.textContent='Revogar';x.onclick=()=>{V.users=V.users.filter(y=>y!==u);persist();renderUsers();$('accStatus').textContent=`Acesso de ${u.name} revogado.`};it.append(x)}
+    ul.append(it);
+  });
+}
+$('nuAdd').onclick=async()=>{
+  const n=$('nuName').value.trim(),p=$('nuPw').value;
+  if(!n||p.length<6){$('accStatus').textContent='Informe o nome e uma senha com pelo menos 6 caracteres.';return}
+  if(V.users.some(u=>u.name.toLowerCase()===n.toLowerCase())){$('accStatus').textContent='Já existe alguém com esse nome.';return}
+  $('accStatus').textContent='Criando acesso…';
+  V.users.push(await makeUser(n,p,'user'));persist();renderUsers();
+  $('nuName').value=$('nuPw').value='';$('accStatus').textContent=`✓ ${n} autorizado(a). Passe a senha pessoalmente.`;
+};
+$('myPwBtn').onclick=async()=>{
+  const p=$('myPw').value;if(p.length<6){$('accStatus').textContent='A senha precisa de pelo menos 6 caracteres.';return}
+  const nu=await makeUser(ME.name,p,ME.role);V.users[V.users.indexOf(ME)]=nu;ME=nu;persist();renderUsers();
+  $('myPw').value='';$('accStatus').textContent='✓ Senha trocada.';
+};
+$('lockMin').onchange=e=>{V.lockMin=+e.target.value;persist();bump()};
+function lockNow(){speechSynthesis?.cancel();if(stream)stream.getTracks().forEach(t=>t.stop());location.reload()}
+$('lockBtn').onclick=lockNow;
+let idleT=null;
+function bump(){clearTimeout(idleT);const m=V?.lockMin??10;if(DK&&m>0)idleT=setTimeout(lockNow,m*60000)}
+['click','keydown','touchstart','scroll'].forEach(ev=>addEventListener(ev,bump,{passive:true}));
+
+function startApp(){
+  document.body.classList.remove('locked');$('lock').remove();
+  $('who').textContent=(isOwner()?'👑 ':'👤 ')+uname();
+  fillCfg();renderStats();renderKB();renderUsers();bump();
+  if(!isOwner()){$('cKey').value='';}
+  add(`Bem-vindo, ${uname()}. `+'Ultron online. Fale pelo 🎤, digite, ou me mostre algo na aba Visão. Funciono sozinho e aprendo com você'+(apiReady()?' — e estou conectado a uma IA para tarefas como códigos e planilhas.':'. Para tarefas como códigos e planilhas, conecte uma API na aba ⚙️.'),'bot');
+}
+
+/* ===================== TELA DE BLOQUEIO ===================== */
+(function lockScreen(){
+  const msg=$('lkMsg'),err=$('lkErr'),btn=$('lkBtn'),pw=$('lkPw'),pw2=$('lkPw2'),nm=$('lkName');
+  if(!window.crypto?.subtle){msg.textContent='Este navegador não oferece criptografia neste modo. Abra o arquivo no Chrome ou Edge atualizados.';btn.disabled=true;pw.style.display='none';return}
+  try{V=JSON.parse(localStorage.getItem(VKEY))}catch(e){V=null}
+  const setup=!V||!V.users?.length;
+  if(setup){
+    msg.innerHTML='Primeiro acesso. Crie a sua <b>senha de dono</b>.<br><br>⚠️ Sem ela ninguém entra — nem você. Não existe recuperação, então guarde bem.';
+    nm.style.display='';pw2.style.display='';btn.textContent='Criar meu acesso';pw.autocomplete='new-password';nm.value='Gabriel';
+  }else msg.textContent='Acesso restrito. Identifique-se.';
+  async function go(){
+    err.textContent='';
+    if(setup){
+      const n=nm.value.trim();
+      if(!n)return err.textContent='Digite seu nome.';
+      if(pw.value.length<6)return err.textContent='Use pelo menos 6 caracteres.';
+      if(pw.value!==pw2.value)return err.textContent='As senhas não conferem.';
+      btn.disabled=true;btn.textContent='Criando cofre…';
+      await setupOwner(n,pw.value);startApp();return;
+    }
+    const f=fails();
+    if(Date.now()<f.until)return err.textContent=`Muitas tentativas. Aguarde ${Math.ceil((f.until-Date.now())/1000)}s.`;
+    btn.disabled=true;btn.textContent='Verificando…';
+    let ok=false;try{ok=await unlock(pw.value)}catch(e){ok=false}
+    if(ok){setFails({n:0,until:0});startApp();return}
+    f.n++;if(f.n>=5)f.until=Date.now()+Math.min(30000*2**(f.n-5),3600000);setFails(f);
+    btn.disabled=false;btn.textContent='Desbloquear';pw.value='';pw.focus();
+    err.textContent='Acesso negado.'+(f.n>=5?` Bloqueado por ${Math.round(Math.min(30*2**(f.n-5),3600))}s.`:'');
+  }
+  btn.onclick=go;
+  [pw,pw2,nm].forEach(el=>el.addEventListener('keydown',e=>{if(e.key==='Enter')go()}));
+  (setup?nm:pw).focus();
+})();
+</script>
+</body>
+</html>
