@@ -94,6 +94,7 @@
     <div class="toggles">
       <label><input type="checkbox" id="optSpeak" checked> Responder em voz</label>
       <label><input type="checkbox" id="optWake"> Escuta contínua (diga "Ultron, …")</label>
+      <button id="testVoice" style="padding:3px 9px;font-size:12px">🔊 Testar voz</button>
       <button id="clearChat" style="padding:3px 9px;font-size:12px">Limpar conversa</button>
     </div>
     <div class="row">
@@ -198,6 +199,7 @@ const SEED={
     {q:'qual é o seu nome',a:'Eu sou Ultron. Fui criado para ouvir, ver e aprender.',uses:0,score:1},
     {q:'quem te criou',a:'Fui criado pelo Gabriel, com uma ajudinha do Claude.',uses:0,score:1},
     {q:'o que você sabe fazer',a:'Respondo o que você digita ou fala, leio textos pela câmera e aprendo com o que você me ensina. Com uma API conectada, também crio códigos, planilhas e textos.',uses:0,score:1},
+    {q:'você tem voz própria',a:'Tenho sim. Eu falo usando a voz do seu aparelho — toque em 🔊 em qualquer resposta para me ouvir.',uses:0,score:1},
     {q:'oi',a:'Olá. Estou online e pronto.',uses:0,score:1},
     {q:'tudo bem',a:'Todos os sistemas operacionais. E com você?',uses:0,score:1},
     {q:'obrigado',a:'Disponha.',uses:0,score:1}
@@ -246,6 +248,9 @@ async function unlock(pw){
   if(!ME)return false;
   await openDK();
   if(V.data){const d=JSON.parse(dec.decode(await aesDec(DK,V.data)));M=d.M;M.nicks=M.nicks||{};Object.assign(C,d.C||{})}
+  // novas respostas de fábrica entram sem apagar o que já foi aprendido
+  SEED.facts.forEach(s=>{if(!M.facts.some(f=>norm(f.q)===norm(s.q)))M.facts.push({...s})});
+  M.facts.forEach(f=>{f.a=f.a.replace(/^(diga|responda|fale)\s*[:,\-]?\s+/i,'')});
   return true;
 }
 function fails(){try{return JSON.parse(localStorage.getItem(FKEY))||{n:0,until:0}}catch(e){return{n:0,until:0}}}
@@ -375,8 +380,10 @@ function localThink(t){
   const n=norm(t);
   if(pending){
     if(/^(nao sei|deixa|esquece|cancela|pular)$/.test(n)){pending=null;return{a:'Tudo bem, fica pra próxima.',kind:'cmd'}}
-    const q=pending;pending=null;learn(q,t);
-    return{a:`Aprendido! Quando perguntarem "${q}", vou responder isso.`,kind:'cmd'};
+    const q=pending;pending=null;
+    const ans=t.replace(/^(diga|responda|fale|resposta|a resposta (e|é))\s*[:,\-]?\s*/i,'').replace(/^["“'](.*)["”']$/,'$1').trim()||t;
+    learn(q,ans);
+    return{a:`Aprendido! Quando perguntarem "${q}", vou responder: "${ans}"`,kind:'cmd'};
   }
   let m=t.match(/^aprend[ae]\s*:?\s*(.+?)\s*[|=]\s*(.+)$/i);
   if(m){learn(m[1],m[2]);return{a:`Memorizado: "${m[1]}" → "${m[2]}"`,kind:'cmd'}}
@@ -478,6 +485,7 @@ function add(text,who,meta){
   else{
     if(meta?.src){const s=document.createElement('div');s.className='src';s.textContent=meta.src==='ai'?'🌐 via '+(PRESETS[C.preset]?.n.split(' (')[0]||'IA'):'💾 memória local';d.append(s)}
     renderRich(d,text);
+    if('speechSynthesis'in window){const sp=document.createElement('button');sp.textContent='🔊';sp.title='Ouvir';sp.style.cssText='padding:2px 8px;font-size:12px;margin-top:6px';sp.onclick=()=>speak(text,true);d.append(sp)}
     if(meta&&(meta.fact||meta.src==='ai')){
       const fb=document.createElement('div');fb.className='fb';
       const up=document.createElement('button');up.textContent=meta.src==='ai'?'👍 Memorizar':'👍';
@@ -496,6 +504,12 @@ function add(text,who,meta){
 $('sendBtn').onclick=()=>{const v=inp.value;inp.value='';ask(v)};
 inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const v=inp.value;inp.value='';ask(v)}});
 $('clearChat').onclick=()=>{chat.innerHTML='';hist=[];pending=null};
+$('testVoice').onclick=()=>{
+  if(!('speechSynthesis'in window)){add('Este navegador não tem voz sintetizada.','bot');return}
+  pickVoice();
+  speak(`Sistemas de voz ativos. Eu sou Ultron.`,true);
+  setTimeout(()=>{if(!speechSynthesis.speaking)add('🔊 Se não ouviu nada: aumente o volume de MÍDIA do celular (não o da campainha), desligue o modo silencioso e confira se há uma voz em português instalada em Configurações → Sistema → Idioma → Saída de texto para fala.','bot')},2500);
+};
 
 /* ===================== VOZ ===================== */
 let voice=null;
@@ -505,14 +519,34 @@ function speakable(t){
   let s=t.replace(/```[\s\S]*?```/g,' (o código está na tela) ').replace(/\(.*?👎.*?\)/g,'').replace(/⚠️.*$/s,'').replace(/[*#`_>|]/g,'').replace(/\s+/g,' ').trim();
   return s.length>700?s.slice(0,700)+'… o resto está na tela.':s;
 }
+// Fala em pedaços curtos (o Chrome do Android corta textos longos e às vezes ignora
+// uma fala disparada logo após cancel()). Por isso: cancela, espera um instante, fala.
+let speakGen=0;
 function speak(t,force){
   if(!('speechSynthesis'in window))return;
   if(!force&&!$('optSpeak').checked)return;
-  speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(speakable(t));u.lang='pt-BR';if(voice)u.voice=voice;u.pitch=0.6;u.rate=1;
-  u.onstart=()=>{eye.classList.add('busy');pauseRec()};u.onend=()=>{eye.classList.remove('busy');resumeRec()};
-  speechSynthesis.speak(u);
+  const gen=++speakGen;
+  if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel();
+  const text=speakable(t);if(!text)return;
+  const chunks=text.match(/[^.!?;:\n]{1,180}[.!?;:\n]*|\S.{0,179}/g)||[text];
+  if(!voice)pickVoice();
+  setTimeout(()=>{
+    if(gen!==speakGen)return;
+    speechSynthesis.resume();
+    chunks.forEach((c,i)=>{
+      const u=new SpeechSynthesisUtterance(c.trim());u.lang='pt-BR';if(voice)u.voice=voice;u.pitch=0.6;u.rate=1;u.volume=1;
+      if(i===0)u.onstart=()=>{eye.classList.add('busy');pauseRec()};
+      if(i===chunks.length-1)u.onend=u.onerror=()=>{eye.classList.remove('busy');resumeRec()};
+      speechSynthesis.speak(u);
+    });
+  },120);
 }
+// "Destrava" o áudio no primeiro toque (exigência dos navegadores de celular)
+let ttsUnlocked=false;
+addEventListener('pointerdown',()=>{
+  if(ttsUnlocked||!('speechSynthesis'in window))return;ttsUnlocked=true;
+  const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);
+},{passive:true});
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const micBtn=$('micBtn'),optWake=$('optWake');
 let rec=null,listening=false,wantListen=false;
