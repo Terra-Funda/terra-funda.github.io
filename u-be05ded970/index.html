@@ -159,6 +159,17 @@
         <select id="lockMin"><option value="5">5 minutos</option><option value="10">10 minutos</option><option value="30">30 minutos</option><option value="0">Nunca</option></select></label>
       <div class="mut" id="accStatus"></div>
     </div>
+    <div class="box">
+      <b>🔊 Voz do Ultron</b>
+      <label class="f">Voz (as opções vêm do seu aparelho)
+        <select id="vSel"></select></label>
+      <label class="f">Tom: <span id="vPitchL"></span> (menor = mais grave)
+        <input type="range" id="vPitch" min="0.1" max="1.5" step="0.05"></label>
+      <label class="f">Velocidade: <span id="vRateL"></span>
+        <input type="range" id="vRate" min="0.6" max="1.5" step="0.05"></label>
+      <div class="row wrap"><button id="vTest">▶ Ouvir</button><label class="mut" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="vAll" style="flex:none"> Mostrar vozes de todos os idiomas</label></div>
+      <div class="mut">No Android, o Chrome costuma mostrar só uma voz em português. Para ter voz masculina: Configurações → Sistema → Idioma → Saída de texto para fala → ⚙️ do Google → Instalar dados de voz → Português (Brasil) → escolha uma voz masculina. Depois recarregue o Ultron.</div>
+    </div>
     <div class="box" id="userNote" style="display:none"><div class="mut">A configuração da API é feita só pelo dono do Ultron.</div></div>
     <div class="box owner-only">
       <label class="f">Modo de funcionamento
@@ -513,7 +524,30 @@ $('testVoice').onclick=()=>{
 
 /* ===================== VOZ ===================== */
 let voice=null;
-function pickVoice(){const vs=speechSynthesis.getVoices();voice=vs.find(v=>/pt.?BR/i.test(v.lang)&&/male|daniel|ricardo|antonio/i.test(v.name))||vs.find(v=>/pt.?BR/i.test(v.lang))||vs.find(v=>/^pt/i.test(v.lang))||null}
+const VZ={name:'',pitch:0.6,rate:1};
+try{Object.assign(VZ,JSON.parse(localStorage.getItem('ultron_voz'))||{})}catch(e){}
+const saveVZ=()=>{try{localStorage.setItem('ultron_voz',JSON.stringify(VZ))}catch(e){}};
+const MALE=/\b(male|masculin|antonio|ant[oô]nio|daniel|ricardo|felipe|duarte|thiago|fabio|humberto|julio|nicolau|donato|valerio|cristiano|pt-br-x-.*(ptd|afs-local|pte)|homem)\b/i;
+function pickVoice(){
+  const vs=speechSynthesis.getVoices();
+  voice=(VZ.name&&vs.find(v=>v.name===VZ.name))||vs.find(v=>/pt.?BR/i.test(v.lang)&&MALE.test(v.name))||vs.find(v=>/^pt/i.test(v.lang)&&MALE.test(v.name))||vs.find(v=>/pt.?BR/i.test(v.lang))||vs.find(v=>/^pt/i.test(v.lang))||null;
+  fillVoices();
+}
+function fillVoices(){
+  const sel=$('vSel');if(!sel)return;const all=$('vAll').checked;
+  const vs=speechSynthesis.getVoices().filter(v=>all||/^pt/i.test(v.lang));
+  sel.innerHTML='';
+  if(!vs.length){const o=document.createElement('option');o.textContent='(nenhuma voz em português encontrada)';sel.append(o);return}
+  vs.forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=`${MALE.test(v.name)?'♂ ':''}${v.name} (${v.lang})${v.localService?'':' ☁'}`;if(voice&&v.name===voice.name)o.selected=true;sel.append(o)});
+}
+function syncVZ(){$('vPitch').value=VZ.pitch;$('vRate').value=VZ.rate;$('vPitchL').textContent=(+VZ.pitch).toFixed(2);$('vRateL').textContent=(+VZ.rate).toFixed(2)}
+$('vSel').onchange=e=>{VZ.name=e.target.value;saveVZ();pickVoice();speak('Esta é a minha nova voz.',true)};
+$('vPitch').oninput=e=>{VZ.pitch=+e.target.value;saveVZ();syncVZ()};
+$('vRate').oninput=e=>{VZ.rate=+e.target.value;saveVZ();syncVZ()};
+$('vPitch').onchange=$('vRate').onchange=()=>speak('Eu sou Ultron.',true);
+$('vTest').onclick=()=>speak('Eu sou Ultron. Sistemas de voz ativos.',true);
+$('vAll').onchange=fillVoices;
+syncVZ();
 if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
 function speakable(t){
   let s=t.replace(/```[\s\S]*?```/g,' (o código está na tela) ').replace(/\(.*?👎.*?\)/g,'').replace(/⚠️.*$/s,'').replace(/[*#`_>|]/g,'').replace(/\s+/g,' ').trim();
@@ -534,7 +568,7 @@ function speak(t,force){
     if(gen!==speakGen)return;
     speechSynthesis.resume();
     chunks.forEach((c,i)=>{
-      const u=new SpeechSynthesisUtterance(c.trim());u.lang='pt-BR';if(voice)u.voice=voice;u.pitch=0.6;u.rate=1;u.volume=1;
+      const u=new SpeechSynthesisUtterance(c.trim());u.lang=voice?.lang||'pt-BR';if(voice)u.voice=voice;u.pitch=VZ.pitch;u.rate=VZ.rate;u.volume=1;
       if(i===0)u.onstart=()=>{eye.classList.add('busy');pauseRec()};
       if(i===chunks.length-1)u.onend=u.onerror=()=>{eye.classList.remove('busy');resumeRec()};
       speechSynthesis.speak(u);
