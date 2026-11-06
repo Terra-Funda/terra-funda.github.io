@@ -420,17 +420,75 @@ function bestFact(q){
   for(const f of M.facts){const s=sim(q,f.q)*(0.85+0.15*Math.min(f.score,3)/3);if(s>bs){bs=s;best=f}}
   return {f:best,s:bs};
 }
-function searchDocs(q){
-  const qt=toks(q);if(!qt.length)return null;
-  let best=null,bs=0;
-  for(const d of M.docs)for(const sent of d.text.split(/(?<=[.!?\n])\s+/)){
-    if(sent.trim().length<8)continue;
-    const st=new Set(toks(sent));let hit=0;qt.forEach(t=>st.has(t)&&hit++);
-    const s=hit/qt.length;if(s>bs){bs=s;best={sent:sent.trim(),d}}
+/* ---------- Busca nos arquivos lidos (BM25: o mesmo princípio de buscadores) ---------- */
+// Palavras que falam DO arquivo, não do assunto — ignoradas na busca
+const META=new Set(toks('pdf arquivo arquivos documento documentos texto textos planilha video imagem foto fala falar falou diz dizer disse sobre explique explica conte contar fale mostre mostra o que qual quais como onde quando quem porque por que sabe saber lido leu leitura segundo trecho parte informacao informacoes quanto quanta quantos quantas me eu voce isso esse essa algo coisa coisas').concat(['qu','com']));
+let IDX=null,IDXkey='';
+function passagesOf(d){
+  let txt=d.text.replace(/-\n(\w)/g,'$1').replace(/\[P[aá]gina \d+\]/g,'\n');
+  if(d.kind==='excel'){ // planilha: cada linha vira um trecho, com o cabeçalho junto
+    const out=[];txt.split(/\n\s*\n/).forEach(block=>{const ls=block.split('\n').filter(l=>l.replace(/[;,\s]/g,''));let head='';
+      ls.forEach((l,i)=>{if(/^\[Planilha/.test(l)){head='';out.push(l);return}if(!head){head=l;return}out.push(head+'\n'+l)})});
+    return out;
   }
-  return bs>=0.5?best:null;
+  txt=txt.replace(/([^\n.!?:;])\n(?=[a-zà-ú0-9(])/g,'$1 ');
+  const sents=txt.split(/(?<=[.!?;])\s+|\n+/).map(x=>x.trim()).filter(x=>x.length>2);
+  const out=[];let cur='';
+  sents.forEach(x=>{if((cur+' '+x).length>380&&cur){out.push(cur);cur=x}else cur=cur?cur+' '+x:x});
+  if(cur)out.push(cur);return out;
+}
+function buildIndex(){
+  const key=M.docs.length+'|'+(M.docs.at(-1)?.t||0)+'|'+M.docs.reduce((a,d)=>a+d.text.length,0);
+  if(IDX&&IDXkey===key)return IDX;
+  const P=[],df=new Map();let total=0;
+  M.docs.forEach(d=>passagesOf(d).forEach(text=>{
+    const tk=toks(text),tf=new Map();tk.forEach(w=>tf.set(w,(tf.get(w)||0)+1));
+    tf.forEach((_,w)=>df.set(w,(df.get(w)||0)+1));P.push({d,text,tf,len:tk.length});total+=tk.length;
+  }));
+  IDX={P,df,avg:total/(P.length||1),vocab:[...df.keys()]};IDXkey=key;return IDX;
+}
+function qTerms(q,I){
+  const out=new Set();
+  toks(q).filter(w=>!META.has(w)&&w.length>1).forEach(w=>{
+    if(I.df.has(w)){out.add(w);return}
+    if(w.length>=5){const pre=w.slice(0,5);I.vocab.forEach(v=>{if(v.startsWith(pre))out.add(v)})} // variações: "aluguel"/"alugueis"
+  });
+  return[...out];
+}
+function searchDocs(q,limit=3,onlyDoc=null){
+  if(!M.docs.length)return[];
+  const I=buildIndex(),terms=qTerms(q,I);if(!terms.length)return[];
+  const N=I.P.length,k1=1.4,b=0.75,res=[];
+  I.P.forEach(p=>{
+    if(onlyDoc&&p.d!==onlyDoc)return;
+    let sc=0,hit=0;
+    terms.forEach(w=>{const f=p.tf.get(w);if(!f)return;hit++;const idf=Math.log(1+(N-I.df.get(w)+0.5)/(I.df.get(w)+0.5));
+      sc+=idf*(f*(k1+1))/(f+k1*(1-b+b*p.len/I.avg))});
+    if(hit)res.push({p,sc,hit});
+  });
+  const meaningful=toks(q).filter(w=>!META.has(w)&&w.length>1).length||1;
+  return res.filter(r=>(r.hit>=2||r.hit/meaningful>=0.34)&&r.sc>0.5).sort((a,b)=>b.sc-a.sc).slice(0,limit);
+}
+function docByName(q){
+  const n=norm(q);
+  return M.docs.slice().reverse().find(d=>{const base=norm((d.name||'').replace(/\.[a-z0-9]+$/i,''));return base.length>2&&n.includes(base)});
+}
+// Resumo sem IA: escolhe as frases mais "centrais" do texto (as que concentram as palavras mais frequentes)
+function extractiveSummary(d,k=5){
+  const seen=new Set(),sents=passagesOf({...d,kind:'texto'}).flatMap(p=>p.split(/(?<=[.!?])\s+/)).filter(x=>{const k=norm(x);if(x.length<40||x.length>400||seen.has(k))return false;seen.add(k);return true});
+  if(!sents.length)return d.text.slice(0,600);
+  const freq=new Map();sents.forEach(x=>toks(x).forEach(w=>freq.set(w,(freq.get(w)||0)+1)));
+  const sc=sents.map((x,i)=>{const t=toks(x);return{i,x,s:t.reduce((a,w)=>a+Math.log(1+freq.get(w)),0)/Math.sqrt(t.length+1)*(i<3?1.2:1)}});
+  return sc.sort((a,b)=>b.s-a.s).slice(0,k).sort((a,b)=>a.i-b.i).map(o=>'• '+o.x).join('\n');
 }
 
+function docAnswer(q,onlyDoc){
+  const hits=searchDocs(q,3,onlyDoc||null);if(!hits.length)return null;
+  const top=hits[0],more=hits.slice(1).filter(h=>h.sc>=top.sc*0.6);
+  let a=`📄 Segundo "${top.p.d.name||'um texto que li'}":\n${top.p.text}`;
+  more.forEach(h=>{a+=`\n\n📄 ${h.p.d===top.p.d?'Mais adiante':`Em "${h.p.d.name||'outro texto'}"`}:\n${h.p.text}`});
+  return{a,kind:'doc'};
+}
 /* ===================== CÉREBRO LOCAL ===================== */
 // retorna {a, kind:'cmd'|'fact'|'doc'|'guess'|'unknown', fact?}
 let pending=null;
@@ -457,15 +515,21 @@ function localThink(t){
   if(/^(que dia|qual (a )?data)/.test(n))return{a:'Hoje é '+new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.',kind:'cmd'};
   const st=styleCommand(t,n);if(st)return st;
   if(/o que (voce )?(sabe|aprendeu)|quanto (voce )?sabe/.test(n))return{a:`Tenho ${M.facts.length} respostas aprendidas e ${M.docs.length} textos lidos na memória.`+(apiReady()?' E estou conectado a uma IA para o resto.':''),kind:'cmd'};
-  if(/o que (voce )?leu|ultimo texto|ultima leitura/.test(n))return{a:M.docs.length?`A última coisa que li foi "${M.docs.at(-1).name||'um texto'}":\n`+M.docs.at(-1).text.slice(0,600):'Ainda não li nada. Use a aba Visão.',kind:'cmd'};
+  if(/o que (voce )?leu|ultimo texto|ultima leitura|quais arquivos|que arquivos/.test(n))return{a:M.docs.length?'Arquivos e textos na minha memória (mais recentes primeiro):\n'+M.docs.slice(-12).reverse().map(d=>`• ${d.name||'Leitura da câmera'} — ${d.text.length.toLocaleString('pt-BR')} caracteres`).join('\n')+'\n\nPergunte sobre qualquer um. Para resumir: "resuma o arquivo <nome>".':'Ainda não li nada. Use o 📎 para me mandar arquivos.',kind:'cmd'};
   const expr=t.replace(/^(quanto (é|e|da|dá)|calcule|calcula)\s*/i,'').replace(/\?$/,'').replace(/vezes/gi,'*').replace(/mais/gi,'+').replace(/menos/gi,'-').replace(/dividido por/gi,'/').replace(/(\d)\s*x\s*(\d)/gi,'$1*$2').replace(/,/g,'.');
   if(/^[\d\s+\-*/().^%]+$/.test(expr)&&/\d/.test(expr)&&/[+\-*/^%]/.test(expr)){
     try{const v=Function('"use strict";return ('+expr.replace(/\^/g,'**')+')')();if(isFinite(v))return{a:`${expr.trim()} = ${+v.toFixed(10)}`,kind:'cmd'}}catch(e){}
   }
+  const aboutFile=/\b(pdf|arquivo|documento|planilha|texto|leu|lido|video|foto|imagem)\b/.test(n)||!!docByName(t);
+  if(aboutFile&&M.docs.length){
+    const tgt=docByName(t)||M.docs.at(-1);
+    if(/(resum|do que se trata|sobre o que (e|fala)|principais pontos|pontos principais)/.test(n))
+      return{a:`📄 Pontos principais de "${tgt.name||'último texto'}":\n`+extractiveSummary(tgt),kind:'doc'};
+    const dr=docAnswer(t,docByName(t));if(dr)return dr;
+  }
   const r=bestFact(t);
   if(r.f&&r.s>=0.55){r.f.uses++;save();return{a:personal(r.f.a),kind:'fact',fact:r.f}}
-  const d=searchDocs(t);
-  if(d)return{a:`Encontrei isso em "${d.d.name||'um texto que li'}" (${new Date(d.d.t).toLocaleDateString('pt-BR')}):\n"${d.sent}"`,kind:'doc'};
+  const dr=docAnswer(t);if(dr&&dr.kind==='doc')return dr;
   if(r.f&&r.s>=0.38)return{a:`Não tenho certeza, mas talvez: ${personal(r.f.a)}\n(Se estiver errado, toque em 👎 e me corrija.)`,kind:'guess',fact:r.f};
   return{a:'Ainda não sei responder isso. Me ensina? Digite (ou fale) a resposta certa — ou diga "pular".',kind:'unknown'};
 }
@@ -1002,15 +1066,11 @@ $('attach').onchange=e=>{const fs=[...e.target.files];e.target.value='';if(fs.le
 // Contexto para a IA: o arquivo mais recente (se a pergunta fala dele) + os trechos mais relevantes de toda a memória
 function docContext(q){
   if(!M.docs.length)return'';
-  const qt=new Set(toks(q)),last=M.docs.at(-1),parts=[];let budget=16000;
+  const last=M.docs.at(-1),parts=[];let budget=16000;
   if(/(arquivo|documento|pdf|planilha|excel|word|texto|v[ií]deo|foto|imagem|tabela|relat[oó]rio|contrato|isso|nele|dele)/i.test(q)){
     const s=last.text.slice(0,12000);parts.push(`=== ${last.name||'Último texto'} ===\n${s}`);budget-=s.length;
   }
-  if(qt.size){
-    const chunks=[];
-    M.docs.forEach(d=>{if(parts.length&&d===last)return;for(let i=0;i<d.text.length;i+=900){const c=d.text.slice(i,i+1000),ct=toks(c);let h=0;ct.forEach(x=>qt.has(x)&&h++);if(h)chunks.push({d,c,s:h/Math.sqrt(ct.length+1)})}});
-    chunks.sort((a,b)=>b.s-a.s).slice(0,6).forEach(x=>{if(budget>0){parts.push(`=== trecho de ${x.d.name||'texto lido'} ===\n${x.c}`);budget-=x.c.length}});
-  }
+  searchDocs(q,6).forEach(h=>{if(budget>0&&!(parts.length&&h.p.d===last&&last.text.length<=12000)){parts.push(`=== trecho de ${h.p.d.name||'texto lido'} ===\n${h.p.text}`);budget-=h.p.text.length}});
   if(!parts.length)parts.push(`=== ${last.name||'Último texto'} (início) ===\n${last.text.slice(0,1500)}`);
   return parts.join('\n\n');
 }
