@@ -170,6 +170,33 @@
       <div class="row wrap"><button id="vTest">▶ Ouvir</button><label class="mut" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="vAll" style="flex:none"> Mostrar vozes de todos os idiomas</label></div>
       <div class="mut">No Android, o Chrome costuma mostrar só uma voz em português. Para ter voz masculina: Configurações → Sistema → Idioma → Saída de texto para fala → ⚙️ do Google → Instalar dados de voz → Português (Brasil) → escolha uma voz masculina. Depois recarregue o Ultron.</div>
     </div>
+    <div class="box owner-only">
+      <b>🎭 Voz de personagem (opcional)</b>
+      <label class="f">Fonte da voz
+        <select id="tProv">
+          <option value="device">Voz do aparelho (grátis, offline)</option>
+          <option value="elevenlabs">ElevenLabs (biblioteca de vozes / voz desenhada)</option>
+          <option value="openai">OpenAI TTS (voz dirigida por instruções)</option>
+        </select></label>
+      <div id="tEL" style="display:none;flex-direction:column;gap:8px">
+        <label class="f">Chave ElevenLabs<input id="tElKey" type="password" placeholder="xi-api-key"></label>
+        <label class="f">ID da voz (Voice ID)<input id="tElVoice" placeholder="copie da biblioteca de vozes / Voice Design"></label>
+        <label class="f">Modelo<select id="tElModel"><option value="eleven_multilingual_v2">Multilingual v2 (melhor qualidade)</option><option value="eleven_flash_v2_5">Flash v2.5 (mais rápido, gasta menos)</option></select></label>
+      </div>
+      <div id="tOA" style="display:none;flex-direction:column;gap:8px">
+        <label class="f">Chave OpenAI (vazio = usa a mesma da IA, se for OpenAI)<input id="tOaKey" type="password" placeholder="sk-..."></label>
+        <label class="f">Voz base<select id="tOaVoice"></select></label>
+        <label class="f">Modelo<input id="tOaModel" placeholder="gpt-4o-mini-tts"></label>
+        <label class="f">Direção do personagem (como ele deve falar)<textarea id="tOaInstr"></textarea></label>
+      </div>
+      <label class="f">Robotização: <span id="tFxL"></span>
+        <input type="range" id="tFx" min="0" max="1" step="0.05"></label>
+      <label class="f">Grave: <span id="tDeepL"></span> (só vozes externas)
+        <input type="range" id="tDeep" min="0.8" max="1.1" step="0.01"></label>
+      <div class="row wrap"><button class="pri" id="tSave">💾 Salvar voz</button><button id="tTest">▶ Testar personagem</button></div>
+      <div class="mut" id="tStatus"></div>
+      <div class="mut">Sem internet ou se os créditos acabarem, ele volta sozinho para a voz do aparelho. A robotização e o grave só funcionam nas vozes externas (o navegador não deixa aplicar efeitos na voz do aparelho).</div>
+    </div>
     <div class="box" id="userNote" style="display:none"><div class="mut">A configuração da API é feita só pelo dono do Ultron.</div></div>
     <div class="box owner-only">
       <label class="f">Modo de funcionamento
@@ -237,7 +264,7 @@ async function makeUser(name,pw,role){const salt=crypto.getRandomValues(new Uint
 function persist(){
   if(!DK)return;clearTimeout(saveT);
   saveT=setTimeout(async()=>{
-    const store={...C};if(!C.remember)store.key='';
+    const store={...C};if(!C.remember){store.key='';if(store.tts)store.tts={...store.tts,elKey:'',oaKey:''}}
     V.data=await aesEnc(DK,enc.encode(JSON.stringify({M,C:store})));
     try{localStorage.setItem(VKEY,JSON.stringify(V))}catch(e){}
   },250);
@@ -519,7 +546,7 @@ $('testVoice').onclick=()=>{
   if(!('speechSynthesis'in window)){add('Este navegador não tem voz sintetizada.','bot');return}
   pickVoice();
   speak(`Sistemas de voz ativos. Eu sou Ultron.`,true);
-  setTimeout(()=>{if(!speechSynthesis.speaking)add('🔊 Se não ouviu nada: aumente o volume de MÍDIA do celular (não o da campainha), desligue o modo silencioso e confira se há uma voz em português instalada em Configurações → Sistema → Idioma → Saída de texto para fala.','bot')},2500);
+  setTimeout(()=>{if(!speechSynthesis.speaking&&!extSrc&&!eye.classList.contains('busy'))add('🔊 Se não ouviu nada: aumente o volume de MÍDIA do celular (não o da campainha), desligue o modo silencioso e confira se há uma voz em português instalada em Configurações → Sistema → Idioma → Saída de texto para fala.','bot')},2500);
 };
 
 /* ===================== VOZ ===================== */
@@ -557,11 +584,19 @@ function speakable(t){
 // uma fala disparada logo após cancel()). Por isso: cancela, espera um instante, fala.
 let speakGen=0;
 function speak(t,force){
-  if(!('speechSynthesis'in window))return;
   if(!force&&!$('optSpeak').checked)return;
   const gen=++speakGen;
-  if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel();
+  stopExt();
+  if('speechSynthesis'in window&&(speechSynthesis.speaking||speechSynthesis.pending))speechSynthesis.cancel();
   const text=speakable(t);if(!text)return;
+  if(extReady()){
+    extSpeak(text,gen).catch(e=>{if(gen===speakGen){$('tStatus')&&($('tStatus').textContent='⚠️ Voz externa falhou ('+e.message+'). Usando a do aparelho.');deviceSpeak(text,gen)}});
+    return;
+  }
+  deviceSpeak(text,gen);
+}
+function deviceSpeak(text,gen){
+  if(!('speechSynthesis'in window))return;
   const chunks=text.match(/[^.!?;:\n]{1,180}[.!?;:\n]*|\S.{0,179}/g)||[text];
   if(!voice)pickVoice();
   setTimeout(()=>{
@@ -575,11 +610,90 @@ function speak(t,force){
     });
   },120);
 }
+/* ---------- VOZ DE PERSONAGEM (ElevenLabs / OpenAI) + efeito robótico ---------- */
+const TTS_DEF={prov:'device',elKey:'',elVoice:'',elModel:'eleven_multilingual_v2',oaKey:'',oaVoice:'onyx',oaModel:'gpt-4o-mini-tts',
+  oaInstr:'Você é Ultron, uma inteligência artificial. Fale em português do Brasil com voz grave, calma, fria e levemente ameaçadora, pausada e confiante.',fx:0.35,deep:0.94};
+const OA_VOICES=['onyx','ash','echo','ballad','sage','verse','alloy','fable','coral','nova','shimmer'];
+const T=()=>Object.assign({},TTS_DEF,C.tts||{});
+function oaKey(){const t=T();return t.oaKey||(C.format==='openai'&&/openai\.com/.test(C.base)?C.key:'')}
+function extReady(){const t=T();return navigator.onLine!==false&&((t.prov==='elevenlabs'&&t.elKey&&t.elVoice)||(t.prov==='openai'&&oaKey()))}
+let actx=null,extSrc=null,osc=null;const audioCache=new Map();
+function getCtx(){if(!actx){const A=window.AudioContext||window.webkitAudioContext;if(A)actx=new A()}return actx}
+function stopExt(){try{extSrc&&extSrc.stop()}catch(e){}try{osc&&osc.stop()}catch(e){}extSrc=osc=null}
+async function fetchVoice(text){
+  const t=T(),ck=t.prov+'|'+(t.prov==='elevenlabs'?t.elVoice+t.elModel:t.oaVoice+t.oaModel+t.oaInstr)+'|'+text;
+  if(audioCache.has(ck))return audioCache.get(ck).slice(0);
+  let res;
+  if(t.prov==='elevenlabs'){
+    res=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(t.elVoice)}?output_format=mp3_44100_128`,{method:'POST',
+      headers:{'xi-api-key':t.elKey,'Content-Type':'application/json','Accept':'audio/mpeg'},
+      body:JSON.stringify({text,model_id:t.elModel,voice_settings:{stability:0.6,similarity_boost:0.8}})});
+  }else{
+    const base=(C.format==='openai'&&/openai\.com/.test(C.base)?C.base:'https://api.openai.com/v1');
+    const body={model:t.oaModel||'gpt-4o-mini-tts',voice:t.oaVoice,input:text,response_format:'mp3'};
+    if(/gpt-4o/.test(body.model)&&t.oaInstr)body.instructions=t.oaInstr;
+    res=await fetch(base+'/audio/speech',{method:'POST',headers:{'Authorization':'Bearer '+oaKey(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }
+  if(!res.ok){let m='';try{const j=await res.json();m=j.detail?.message||j.detail?.status||j.error?.message||JSON.stringify(j).slice(0,120)}catch(e){}throw new Error(`erro ${res.status} ${m}`)}
+  const buf=await res.arrayBuffer();
+  audioCache.set(ck,buf.slice(0));if(audioCache.size>40)audioCache.delete(audioCache.keys().next().value);
+  return buf;
+}
+async function extSpeak(text,gen){
+  const ctx=getCtx();if(!ctx)throw new Error('sem áudio');
+  eye.classList.add('busy');
+  try{
+    const buf=await fetchVoice(text);
+    if(gen!==speakGen)return;
+    if(ctx.state==='suspended')await ctx.resume();
+    const audio=await ctx.decodeAudioData(buf);
+    if(gen!==speakGen)return;
+    const t=T(),fx=+t.fx;
+    const src=ctx.createBufferSource();src.buffer=audio;src.playbackRate.value=+t.deep;
+    // seco
+    const dry=ctx.createGain();dry.gain.value=1-fx*0.6;src.connect(dry).connect(ctx.destination);
+    if(fx>0){
+      // modulador em anel (timbre metálico) + pente curto com realimentação (eco de "lata")
+      const ring=ctx.createGain();ring.gain.value=0;
+      osc=ctx.createOscillator();osc.type='sine';osc.frequency.value=38+fx*40;osc.connect(ring.gain);osc.start();
+      const delay=ctx.createDelay(0.1);delay.delayTime.value=0.011;
+      const fb=ctx.createGain();fb.gain.value=0.35+fx*0.3;delay.connect(fb).connect(delay);
+      const wet=ctx.createGain();wet.gain.value=fx;
+      src.connect(ring);ring.connect(delay);ring.connect(wet);delay.connect(wet);wet.connect(ctx.destination);
+    }
+    extSrc=src;pauseRec();
+    src.onended=()=>{if(extSrc===src){try{osc&&osc.stop()}catch(e){}extSrc=osc=null}eye.classList.remove('busy');resumeRec()};
+    src.start();
+  }catch(e){eye.classList.remove('busy');throw e}
+}
+function fillTTS(){
+  const t=T();
+  const vs=$('tOaVoice');vs.innerHTML='';OA_VOICES.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;vs.append(o)});
+  $('tProv').value=t.prov;$('tElKey').value=t.elKey;$('tElVoice').value=t.elVoice;$('tElModel').value=t.elModel;
+  $('tOaKey').value=t.oaKey;$('tOaVoice').value=t.oaVoice;$('tOaModel').value=t.oaModel;$('tOaInstr').value=t.oaInstr;
+  $('tFx').value=t.fx;$('tDeep').value=t.deep;showTTS();
+}
+function showTTS(){
+  const p=$('tProv').value;$('tEL').style.display=p==='elevenlabs'?'flex':'none';$('tOA').style.display=p==='openai'?'flex':'none';
+  $('tFxL').textContent=Math.round($('tFx').value*100)+'%';$('tDeepL').textContent=(+$('tDeep').value).toFixed(2);
+}
+function readTTS(){
+  C.tts={prov:$('tProv').value,elKey:$('tElKey').value.trim(),elVoice:$('tElVoice').value.trim(),elModel:$('tElModel').value,
+    oaKey:$('tOaKey').value.trim(),oaVoice:$('tOaVoice').value,oaModel:$('tOaModel').value.trim()||'gpt-4o-mini-tts',oaInstr:$('tOaInstr').value.trim(),
+    fx:+$('tFx').value,deep:+$('tDeep').value};
+  persist();
+}
+['tProv','tFx','tDeep'].forEach(id=>$(id).addEventListener('input',showTTS));
+$('tSave').onclick=()=>{readTTS();$('tStatus').textContent=extReady()?'Salvo ✓ Voz de personagem ativa.':(T().prov==='device'?'Salvo ✓ Usando a voz do aparelho.':'Salvo, mas faltam dados (chave/ID da voz).')};
+$('tTest').onclick=()=>{readTTS();$('tStatus').textContent=extReady()?'Gerando voz…':'Faltam dados — testando com a voz do aparelho.';
+  speak('Eu sou Ultron. Todos os sistemas online. Estou ouvindo.',true);setTimeout(()=>{if($('tStatus').textContent==='Gerando voz…')$('tStatus').textContent='✓'},6000)};
+
 // "Destrava" o áudio no primeiro toque (exigência dos navegadores de celular)
 let ttsUnlocked=false;
 addEventListener('pointerdown',()=>{
-  if(ttsUnlocked||!('speechSynthesis'in window))return;ttsUnlocked=true;
-  const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);
+  if(ttsUnlocked)return;ttsUnlocked=true;
+  if('speechSynthesis'in window){const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}
+  const c=getCtx();if(c&&c.state==='suspended')c.resume();
 },{passive:true});
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const micBtn=$('micBtn'),optWake=$('optWake');
@@ -773,7 +887,7 @@ function bump(){clearTimeout(idleT);const m=V?.lockMin??10;if(DK&&m>0)idleT=setT
 function startApp(){
   document.body.classList.remove('locked');$('lock').remove();
   $('who').textContent=(isOwner()?'👑 ':'👤 ')+uname();
-  fillCfg();renderStats();renderKB();renderUsers();bump();
+  fillCfg();fillTTS();renderStats();renderKB();renderUsers();bump();
   if(!isOwner()){$('cKey').value='';}
   add(`Bem-vindo, ${uname()}. `+'Ultron online. Fale pelo 🎤, digite, ou me mostre algo na aba Visão. Funciono sozinho e aprendo com você'+(apiReady()?' — e estou conectado a uma IA para tarefas como códigos e planilhas.':'. Para tarefas como códigos e planilhas, conecte uma API na aba ⚙️.'),'bot');
 }
