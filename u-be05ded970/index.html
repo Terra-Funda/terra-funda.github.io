@@ -101,6 +101,9 @@
     </div>
     <div class="row">
       <button class="mic" id="micBtn" title="Falar">🎤</button>
+      <button id="attachBtn" title="Enviar arquivo para a memória">📎</button>
+      <input type="file" id="attach" multiple style="display:none"
+        accept=".pdf,.docx,.xlsx,.xls,.ods,.csv,.txt,.md,.json,.html,.htm,.xml,.log,image/*,video/*">
       <input id="inp" placeholder="Pergunte, peça uma tarefa ou ensine: aprenda: pergunta | resposta" autocomplete="off">
       <button class="pri" id="sendBtn">➤</button>
     </div>
@@ -135,6 +138,10 @@
       <div class="mut">Ensine diretamente:</div>
       <input id="kq" placeholder="Pergunta">
       <div class="row"><input id="ka" placeholder="Resposta"><button class="pri" id="kAdd">+</button></div>
+    </div>
+    <div class="box">
+      <div class="mut">📎 Ensine com arquivos: PDF, Word (.docx), Excel (.xlsx/.xls/.csv), textos, fotos e vídeos. Ele lê, guarda na memória e você pode perguntar sobre eles.</div>
+      <button class="pri" id="attachBtn2">📎 Escolher arquivos</button>
     </div>
     <div class="row wrap owner-only">
       <button id="exp">📤 Exportar memória</button>
@@ -277,7 +284,8 @@ function persist(){
   saveT=setTimeout(async()=>{
     const store={...C};if(!C.remember){store.key='';if(store.tts)store.tts={...store.tts,elKey:'',oaKey:''}}
     V.data=await aesEnc(DK,enc.encode(JSON.stringify({M,C:store})));
-    try{localStorage.setItem(VKEY,JSON.stringify(V))}catch(e){}
+    try{localStorage.setItem(VKEY,JSON.stringify(V))}
+    catch(e){toast('⚠️ Memória cheia! Apague textos/arquivos antigos na aba 🧠 Memória.',8000)}
   },250);
 }
 async function openDK(){DK=await crypto.subtle.importKey('raw',DKraw,'AES-GCM',false,['encrypt','decrypt'])}
@@ -354,20 +362,20 @@ $('cTest').onclick=async()=>{
 // msgs: [{role:'user'|'assistant', content:string, image?:dataURL}]
 async function callAI(msgs,system){
   const f=C.format;let url,headers={'Content-Type':'application/json'},body,pick;
-  const b64=d=>d.split(',')[1], mime=d=>d.slice(5,d.indexOf(';'));
+  const b64=d=>d.split(',')[1], mime=d=>d.slice(5,d.indexOf(';')), imgs=m=>m.images||(m.image?[m.image]:[]);
   if(f==='anthropic'){
     url=C.base+'/v1/messages';
     Object.assign(headers,{'x-api-key':C.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
-    body={model:C.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:m.image?[{type:'image',source:{type:'base64',media_type:mime(m.image),data:b64(m.image)}},{type:'text',text:m.content}]:m.content}))};
+    body={model:C.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:imgs(m).length?[...imgs(m).map(i=>({type:'image',source:{type:'base64',media_type:mime(i),data:b64(i)}})),{type:'text',text:m.content}]:m.content}))};
     pick=j=>(j.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
   }else if(f==='gemini'){
     url=`${C.base}/models/${encodeURIComponent(C.model)}:generateContent?key=${encodeURIComponent(C.key)}`;
-    body={systemInstruction:{parts:[{text:system}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:m.image?[{inline_data:{mime_type:mime(m.image),data:b64(m.image)}},{text:m.content}]:[{text:m.content}]}))};
+    body={systemInstruction:{parts:[{text:system}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[...imgs(m).map(i=>({inline_data:{mime_type:mime(i),data:b64(i)}})),{text:m.content}]}))};
     pick=j=>(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
   }else{
     url=C.base+'/chat/completions';
     if(C.key)headers.Authorization='Bearer '+C.key;
-    body={model:C.model,messages:[{role:'system',content:system},...msgs.map(m=>({role:m.role,content:m.image?[{type:'text',text:m.content},{type:'image_url',image_url:{url:m.image}}]:m.content}))]};
+    body={model:C.model,messages:[{role:'system',content:system},...msgs.map(m=>({role:m.role,content:imgs(m).length?[{type:'text',text:m.content},...imgs(m).map(i=>({type:'image_url',image_url:{url:i}}))]:m.content}))]};
     pick=j=>j.choices?.[0]?.message?.content||'';
   }
   let res;
@@ -380,7 +388,7 @@ async function callAI(msgs,system){
 }
 function systemPrompt(q){
   const rel=M.facts.map(f=>({f,s:sim(q,f.q)})).sort((a,b)=>b.s-a.s).slice(0,12).map(x=>`- ${x.f.q} → ${x.f.a}`).join('\n');
-  const docs=M.docs.slice(-3).map(d=>`[lido em ${new Date(d.t).toLocaleString('pt-BR')}]\n${d.text.slice(0,1500)}`).join('\n\n');
+  const docs=docContext(q);
   return `Você é ULTRON, um assistente pessoal de IA com voz, visão e memória, criado pelo Gabriel. Responda sempre em português do Brasil, de forma direta e confiante.
 Respostas a perguntas simples: curtas (serão faladas em voz alta).
 Tarefas: quando pedirem código, entregue o código completo num bloco \`\`\`linguagem. Quando pedirem planilha/tabela/Excel, entregue os dados num bloco \`\`\`csv usando ";" como separador (padrão do Excel brasileiro) e, se fizer sentido, sugira fórmulas do Excel em português (SOMA, PROCV, SE…). Para macros, use \`\`\`vba.
@@ -389,7 +397,7 @@ Usuário atual: ${uname()} (${isOwner()?'seu dono e criador':'pessoa autorizada 
 ${C.persona?'Instruções do usuário: '+C.persona:''}
 Coisas que o usuário te ensinou (use se for relevante; elas têm prioridade sobre seu conhecimento):
 ${rel||'(nada ainda)'}
-${docs?'Textos que você leu recentemente pela câmera:\n'+docs:''}`;
+${docs?'Trechos de arquivos e textos que você leu (sua memória). Use-os para responder e cite o nome do arquivo:\n'+docs:''}`;
 }
 
 /* ===================== TEXTO / SIMILARIDADE ===================== */
@@ -445,7 +453,7 @@ function localThink(t){
   if(/^(que horas|quantas horas)/.test(n))return{a:'Agora são '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.',kind:'cmd'};
   if(/^(que dia|qual (a )?data)/.test(n))return{a:'Hoje é '+new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.',kind:'cmd'};
   if(/o que (voce )?(sabe|aprendeu)|quanto (voce )?sabe/.test(n))return{a:`Tenho ${M.facts.length} respostas aprendidas e ${M.docs.length} textos lidos na memória.`+(apiReady()?' E estou conectado a uma IA para o resto.':''),kind:'cmd'};
-  if(/o que (voce )?leu|ultimo texto|ultima leitura/.test(n))return{a:M.docs.length?'A última coisa que li foi:\n'+M.docs.at(-1).text.slice(0,600):'Ainda não li nada. Use a aba Visão.',kind:'cmd'};
+  if(/o que (voce )?leu|ultimo texto|ultima leitura/.test(n))return{a:M.docs.length?`A última coisa que li foi "${M.docs.at(-1).name||'um texto'}":\n`+M.docs.at(-1).text.slice(0,600):'Ainda não li nada. Use a aba Visão.',kind:'cmd'};
   const expr=t.replace(/^(quanto (é|e|da|dá)|calcule|calcula)\s*/i,'').replace(/\?$/,'').replace(/vezes/gi,'*').replace(/mais/gi,'+').replace(/menos/gi,'-').replace(/dividido por/gi,'/').replace(/(\d)\s*x\s*(\d)/gi,'$1*$2').replace(/,/g,'.');
   if(/^[\d\s+\-*/().^%]+$/.test(expr)&&/\d/.test(expr)&&/[+\-*/^%]/.test(expr)){
     try{const v=Function('"use strict";return ('+expr.replace(/\^/g,'**')+')')();if(isFinite(v))return{a:`${expr.trim()} = ${+v.toFixed(10)}`,kind:'cmd'}}catch(e){}
@@ -453,7 +461,7 @@ function localThink(t){
   const r=bestFact(t);
   if(r.f&&r.s>=0.55){r.f.uses++;save();return{a:personal(r.f.a),kind:'fact',fact:r.f}}
   const d=searchDocs(t);
-  if(d)return{a:`Encontrei isso num texto que li (${new Date(d.d.t).toLocaleDateString('pt-BR')}):\n"${d.sent}"`,kind:'doc'};
+  if(d)return{a:`Encontrei isso em "${d.d.name||'um texto que li'}" (${new Date(d.d.t).toLocaleDateString('pt-BR')}):\n"${d.sent}"`,kind:'doc'};
   if(r.f&&r.s>=0.38)return{a:`Não tenho certeza, mas talvez: ${personal(r.f.a)}\n(Se estiver errado, toque em 👎 e me corrija.)`,kind:'guess',fact:r.f};
   return{a:'Ainda não sei responder isso. Me ensina? Digite (ou fale) a resposta certa — ou diga "pular".',kind:'unknown'};
 }
@@ -876,9 +884,121 @@ $('optAuto').onchange=e=>{
   clearInterval(autoT);
   if(e.target.checked){if(!stream)camStart();autoT=setInterval(()=>{if(stream&&video.videoWidth)ocr(prep(video,video.videoWidth,video.videoHeight),true)},5000)}
 };
-function memorizeDoc(text){M.docs.push({t:Date.now(),text});if(M.docs.length>200)M.docs.shift();save()}
+function memorizeDoc(text,name,kind){
+  const MAX=150000;
+  if(text.length>MAX)text=text.slice(0,MAX)+'\n[…arquivo muito grande: guardei só o começo]';
+  M.docs.push({t:Date.now(),text,name:name||'Leitura da câmera',kind:kind||'camera'});
+  if(M.docs.length>200)M.docs.shift();save();
+}
 $('ocrSave').onclick=()=>{if(ocrOut.value.trim()){memorizeDoc(ocrOut.value.trim());ocrStatus.textContent='Texto memorizado ✓'}};
 $('ocrAsk').onclick=()=>{if(ocrOut.value.trim()){memorizeDoc(ocrOut.value.trim());show('chat');add('Texto memorizado. Pode me perguntar sobre ele.','bot');inp.focus()}};
+
+/* ===================== ARQUIVOS (PDF, Word, Excel, textos, fotos, vídeos) ===================== */
+const LIB={pdf:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',pdfw:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  xlsx:'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',mammoth:'https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js'};
+const loaded={};
+function loadScript(url){
+  return loaded[url]||(loaded[url]=new Promise((res,rej)=>{const s=document.createElement('script');s.src=url;s.onload=res;
+    s.onerror=()=>{delete loaded[url];rej(new Error('não consegui carregar o leitor (precisa de internet na 1ª vez)'))};document.head.append(s)}));
+}
+async function ocrText(c){const w=await getWorker();const {data}=await w.recognize(c);return data.confidence>=35?data.text.trim():''}
+const loadImg=src=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('imagem inválida'));i.src=src});
+const mmss=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+async function readPDF(f){
+  await loadScript(LIB.pdf);pdfjsLib.GlobalWorkerOptions.workerSrc=LIB.pdfw;
+  const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+  let out='',ocrPages=0;
+  for(let p=1;p<=pdf.numPages;p++){
+    toast(`Lendo "${f.name}": página ${p}/${pdf.numPages}`);
+    const page=await pdf.getPage(p),tc=await page.getTextContent();
+    let txt='';tc.items.forEach(it=>{txt+=it.str+(it.hasEOL?'\n':' ')});txt=txt.replace(/[ \t]+/g,' ').trim();
+    if(txt.length<30&&ocrPages<15){ // página escaneada (é uma imagem): usa OCR
+      const vp=page.getViewport({scale:2}),c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;
+      await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+      toast(`Página ${p} é uma imagem — lendo com OCR…`);txt=await ocrText(c);ocrPages++;
+    }
+    if(txt)out+=`\n[Página ${p}]\n${txt}\n`;
+  }
+  return out;
+}
+async function readWord(f){await loadScript(LIB.mammoth);return (await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}
+async function readSheet(f){
+  await loadScript(LIB.xlsx);const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+  return wb.SheetNames.map(n=>`[Planilha: ${n}]\n`+XLSX.utils.sheet_to_csv(wb.Sheets[n],{FS:';',blankrows:false})).join('\n\n');
+}
+async function readImage(f){
+  const img=await loadImg(URL.createObjectURL(f));
+  if(apiReady()){
+    try{toast(`Analisando "${f.name}" com IA…`);
+      return '[Descrição da IA]\n'+await callAI([{role:'user',content:'Descreva esta imagem de forma objetiva e transcreva fielmente qualquer texto que houver nela.',image:toDataURL(img,img.naturalWidth,img.naturalHeight)}],systemPrompt('imagem'));
+    }catch(e){/* sem IA: cai para o OCR local */}
+  }
+  toast(`Lendo texto de "${f.name}"…`);return ocrText(prep(img,img.naturalWidth,img.naturalHeight));
+}
+async function readVideo(f){
+  const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=URL.createObjectURL(f);
+  await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(new Error('formato de vídeo não suportado neste navegador'))});
+  const dur=v.duration&&isFinite(v.duration)?v.duration:0,n=Math.min(apiReady()?6:8,Math.max(1,Math.floor(dur/3)));
+  const frames=[];
+  for(let i=0;i<n;i++){
+    const t=dur*(i+0.5)/n;toast(`Capturando quadros do vídeo… ${i+1}/${n}`);
+    v.currentTime=t;await Promise.race([new Promise(r=>v.onseeked=r),new Promise(r=>setTimeout(r,4000))]);
+    if(v.videoWidth)frames.push({t,url:toDataURL(v,v.videoWidth,v.videoHeight)});
+  }
+  URL.revokeObjectURL(v.src);
+  if(!frames.length)throw new Error('não consegui extrair imagens do vídeo');
+  if(apiReady()){
+    try{toast('Analisando vídeo com IA…');
+      const out=await callAI([{role:'user',content:`Estes são ${frames.length} quadros, em ordem, de um vídeo de ${mmss(dur)} chamado "${f.name}". Descreva o que acontece e transcreva qualquer texto que apareça.`,images:frames.map(x=>x.url)}],systemPrompt('vídeo'));
+      return `[Vídeo de ${mmss(dur)} — análise da IA]\n`+out;
+    }catch(e){/* cai para o OCR local */}
+  }
+  let txt='',last='';
+  for(let i=0;i<frames.length;i++){
+    toast(`Lendo textos do vídeo… ${i+1}/${frames.length}`);
+    const img=await loadImg(frames[i].url),tt=await ocrText(prep(img,img.naturalWidth,img.naturalHeight));
+    if(tt&&sim(tt,last)<0.8){txt+=`\n[${mmss(frames[i].t)}] ${tt}`;last=tt}
+  }
+  return txt?`[Vídeo de ${mmss(dur)} — textos que apareceram]`+txt:'';
+}
+async function ingest(files){
+  show('chat');
+  for(const f of files){
+    const ext=(f.name.split('.').pop()||'').toLowerCase();let kind='texto',text='';
+    try{
+      toast(`Abrindo "${f.name}"…`);
+      if(ext==='pdf'){kind='pdf';text=await readPDF(f)}
+      else if(ext==='docx'){kind='word';text=await readWord(f)}
+      else if(['xlsx','xls','ods'].includes(ext)){kind='excel';text=await readSheet(f)}
+      else if(ext==='csv'){kind='excel';text=await f.text()}
+      else if(f.type.startsWith('image/')){kind='imagem';text=await readImage(f)}
+      else if(f.type.startsWith('video/')){kind='video';text=await readVideo(f)}
+      else if(['doc','ppt','pptx'].includes(ext))throw new Error(`o formato .${ext} ainda não é suportado (salve como PDF ou .docx)`);
+      else{text=await f.text();if(/^(html?|xml)$/.test(ext))text=new DOMParser().parseFromString(text,'text/html').body.textContent||''}
+      text=(text||'').replace(/\n{3,}/g,'\n\n').trim();hideToast();
+      if(!text){add(`📎 Abri "${f.name}", mas não encontrei texto legível nele.`,'bot');continue}
+      memorizeDoc(text,f.name,kind);
+      add(`📎 Li "${f.name}" (${text.length.toLocaleString('pt-BR')} caracteres) e guardei na memória. Pode me perguntar sobre ele`+(apiReady()?' — por exemplo: "resuma o arquivo".':'.'),'bot');
+    }catch(e){hideToast();add(`📎 Não consegui ler "${f.name}": ${e.message}`,'bot')}
+  }
+}
+$('attachBtn').onclick=$('attachBtn2').onclick=()=>$('attach').click();
+$('attach').onchange=e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)ingest(fs)};
+// Contexto para a IA: o arquivo mais recente (se a pergunta fala dele) + os trechos mais relevantes de toda a memória
+function docContext(q){
+  if(!M.docs.length)return'';
+  const qt=new Set(toks(q)),last=M.docs.at(-1),parts=[];let budget=16000;
+  if(/(arquivo|documento|pdf|planilha|excel|word|texto|v[ií]deo|foto|imagem|tabela|relat[oó]rio|contrato|isso|nele|dele)/i.test(q)){
+    const s=last.text.slice(0,12000);parts.push(`=== ${last.name||'Último texto'} ===\n${s}`);budget-=s.length;
+  }
+  if(qt.size){
+    const chunks=[];
+    M.docs.forEach(d=>{if(parts.length&&d===last)return;for(let i=0;i<d.text.length;i+=900){const c=d.text.slice(i,i+1000),ct=toks(c);let h=0;ct.forEach(x=>qt.has(x)&&h++);if(h)chunks.push({d,c,s:h/Math.sqrt(ct.length+1)})}});
+    chunks.sort((a,b)=>b.s-a.s).slice(0,6).forEach(x=>{if(budget>0){parts.push(`=== trecho de ${x.d.name||'texto lido'} ===\n${x.c}`);budget-=x.c.length}});
+  }
+  if(!parts.length)parts.push(`=== ${last.name||'Último texto'} (início) ===\n${last.text.slice(0,1500)}`);
+  return parts.join('\n\n');
+}
 
 /* ===================== MEMÓRIA UI ===================== */
 function renderStats(){$('stats').textContent=`🧠 ${M.facts.length} respostas · 📄 ${M.docs.length} textos`}
@@ -894,7 +1014,7 @@ function renderKB(){
   M.docs.slice().reverse().forEach(doc=>{
     const it=document.createElement('div');it.className='it';
     const d=document.createElement('div');d.innerHTML='<div class="q"></div><div></div>';
-    d.children[0].textContent='📄 Lido em '+new Date(doc.t).toLocaleString('pt-BR');d.children[1].textContent=doc.text.slice(0,200)+(doc.text.length>200?'…':'');
+    d.children[0].textContent=({pdf:'📕',word:'📘',excel:'📊',video:'🎬',imagem:'🖼',texto:'📄'}[doc.kind]||'📷')+' '+(doc.name||'Leitura')+' · '+new Date(doc.t).toLocaleString('pt-BR');d.children[1].textContent=doc.text.slice(0,200)+(doc.text.length>200?'…':'');
     const x=document.createElement('button');x.textContent='✕';x.onclick=()=>{M.docs=M.docs.filter(y=>y!==doc);save()};
     it.append(d,x);kb.append(it);
   });
