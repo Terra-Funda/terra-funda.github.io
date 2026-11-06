@@ -239,6 +239,26 @@
         <label><input type="checkbox" id="cRemember" checked> Lembrar a chave neste navegador</label>
         <label><input type="checkbox" id="cLearn" checked> Memorizar automaticamente respostas da IA que eu aprovar 👍</label>
       </div>
+      <div class="box" style="background:#0b0f14">
+        <b>🔀 Segunda IA (opcional)</b>
+        <div class="mut">Ex.: principal = Groq (conversa, rápido) e segunda = Gemini (fotos/câmera). Se uma bater o limite ou cair, a outra assume sozinha.</div>
+        <label class="f">Provedor<select id="aPreset"></select></label>
+        <label class="f">Formato da API
+          <select id="aFormat">
+            <option value="openai">OpenAI-compatível (/chat/completions)</option>
+            <option value="anthropic">Anthropic / Claude (/v1/messages)</option>
+            <option value="gemini">Google Gemini (generateContent)</option>
+          </select></label>
+        <label class="f">URL base<input id="aBase" placeholder="https://..."></label>
+        <label class="f">Modelo<input id="aModel" placeholder="nome-do-modelo"></label>
+        <label class="f">Chave de API<input id="aKey" type="password" placeholder="chave da segunda IA"></label>
+        <label class="f">Fotos, câmera e vídeos vão para
+          <select id="aVision">
+            <option value="alt">A segunda IA (recomendado se ela for o Gemini)</option>
+            <option value="main">A principal</option>
+          </select></label>
+        <div class="row wrap"><button id="aTest">🔌 Testar segunda IA</button><button id="aClear">Remover segunda IA</button></div>
+      </div>
       <label class="f">Personalidade / instruções extras (opcional)
         <textarea id="cPersona" placeholder="Ex.: seja mais formal; sempre use Python; responda curto…"></textarea></label>
       <div class="row wrap"><button class="pri" id="cSave">💾 Salvar</button><button id="cTest">🔌 Testar conexão</button><button id="cClear">Apagar chave</button></div>
@@ -283,7 +303,7 @@ async function makeUser(name,pw,role){const salt=crypto.getRandomValues(new Uint
 function persist(){
   if(!DK)return;clearTimeout(saveT);
   saveT=setTimeout(async()=>{
-    const store={...C};if(!C.remember){store.key='';if(store.tts)store.tts={...store.tts,elKey:'',oaKey:''}}
+    const store={...C};if(!C.remember){store.key='';if(store.alt)store.alt={...store.alt,key:''};if(store.tts)store.tts={...store.tts,elKey:'',oaKey:''}}
     V.data=await aesEnc(DK,enc.encode(JSON.stringify({M,C:store})));
     try{localStorage.setItem(VKEY,JSON.stringify(V))}
     catch(e){toast('⚠️ Memória cheia! Apague textos/arquivos antigos na aba 🧠 Memória.',8000)}
@@ -320,7 +340,7 @@ const PRESETS={
   claude:{n:'Claude (Anthropic)',f:'anthropic',b:'https://api.anthropic.com',m:'claude-sonnet-5-5'},
   openai:{n:'OpenAI (ChatGPT)',f:'openai',b:'https://api.openai.com/v1',m:'gpt-4o-mini'},
   gemini:{n:'Google Gemini',f:'gemini',b:'https://generativelanguage.googleapis.com/v1beta',m:'gemini-2.5-flash'},
-  groq:{n:'Groq (rápido, tem plano grátis)',f:'openai',b:'https://api.groq.com/openai/v1',m:'llama-3.3-70b-versatile'},
+  groq:{n:'Groq (rápido, tem plano grátis)',f:'openai',b:'https://api.groq.com/openai/v1',m:'openai/gpt-oss-120b'},
   openrouter:{n:'OpenRouter (vários modelos)',f:'openai',b:'https://openrouter.ai/api/v1',m:'openrouter/auto'},
   deepseek:{n:'DeepSeek',f:'openai',b:'https://api.deepseek.com/v1',m:'deepseek-chat'},
   mistral:{n:'Mistral',f:'openai',b:'https://api.mistral.ai/v1',m:'mistral-small-latest'},
@@ -328,55 +348,84 @@ const PRESETS={
   lmstudio:{n:'LM Studio (local no PC)',f:'openai',b:'http://localhost:1234/v1',m:'local-model'},
   custom:{n:'Personalizado (qualquer outra)',f:'openai',b:'',m:''}
 };
-let C={mode:'hybrid',preset:'none',format:'openai',base:'',model:'',key:'',remember:true,learn:true,persona:''};
+let C={mode:'hybrid',preset:'none',format:'openai',base:'',model:'',key:'',remember:true,learn:true,persona:'',alt:null,vision:'alt'};
 const $=id=>document.getElementById(id);
-const apiReady=()=>C.mode!=='local'&&C.base&&C.model&&(C.key||/localhost|127\.0\.0\.1/.test(C.base));
+const profReady=P=>!!(P&&P.base&&P.model&&(P.key||/localhost|127\.0\.0\.1/.test(P.base)));
+const MAIN=()=>({preset:C.preset,format:C.format,base:C.base,model:C.model,key:C.key});
+const pname=P=>(PRESETS[P?.preset]?.n||'API').split(' (')[0];
+const apiReady=()=>C.mode!=='local'&&(profReady(MAIN())||profReady(C.alt));
+const hasVisionAI=()=>apiReady();
 function fillCfg(){
   const sel=$('cPreset');sel.innerHTML='';
   for(const[k,p]of Object.entries(PRESETS)){const o=document.createElement('option');o.value=k;o.textContent=p.n;sel.append(o)}
   sel.value=C.preset;$('cMode').value=C.mode;$('cFormat').value=C.format;$('cBase').value=C.base;$('cModel').value=C.model;
   $('cKey').value=C.key;$('cRemember').checked=C.remember;$('cLearn').checked=C.learn;$('cPersona').value=C.persona;
+  const as=$('aPreset');as.innerHTML='';
+  for(const[k,p]of Object.entries(PRESETS)){const o=document.createElement('option');o.value=k;o.textContent=p.n;as.append(o)}
+  const A=C.alt||{};as.value=A.preset||'none';$('aFormat').value=A.format||'openai';$('aBase').value=A.base||'';$('aModel').value=A.model||'';$('aKey').value=A.key||'';$('aVision').value=C.vision||'alt';
   updBadge();
 }
 $('cPreset').onchange=e=>{const p=PRESETS[e.target.value];if(p.f){$('cFormat').value=p.f;$('cBase').value=p.b;$('cModel').value=p.m}};
+$('aPreset').onchange=e=>{const p=PRESETS[e.target.value];if(p.f){$('aFormat').value=p.f;$('aBase').value=p.b;$('aModel').value=p.m}};
 function readCfg(){
   Object.assign(C,{mode:$('cMode').value,preset:$('cPreset').value,format:$('cFormat').value,base:$('cBase').value.trim().replace(/\/+$/,''),
-    model:$('cModel').value.trim(),key:$('cKey').value.trim(),remember:$('cRemember').checked,learn:$('cLearn').checked,persona:$('cPersona').value.trim()});
+    model:$('cModel').value.trim(),key:$('cKey').value.trim(),remember:$('cRemember').checked,learn:$('cLearn').checked,persona:$('cPersona').value.trim(),
+    vision:$('aVision').value});
+  const A={preset:$('aPreset').value,format:$('aFormat').value,base:$('aBase').value.trim().replace(/\/+$/,''),model:$('aModel').value.trim(),key:$('aKey').value.trim()};
+  C.alt=(A.base||A.key)?A:null;
   persist();
   updBadge();
 }
 function updBadge(){
   const b=$('aiBadge');
-  if(apiReady()){b.textContent='🌐 '+(C.mode==='api'?'IA':'Híbrido')+': '+(PRESETS[C.preset]?.n.split(' (')[0]||'API');b.classList.add('on')}
+  if(apiReady()){const names=[profReady(MAIN())&&pname(MAIN()),profReady(C.alt)&&pname(C.alt)].filter(Boolean).join(' + ');b.textContent='🌐 '+(C.mode==='api'?'IA':'Híbrido')+': '+names;b.classList.add('on')}
   else{b.textContent='💾 Local';b.classList.remove('on')}
 }
 $('cSave').onclick=()=>{readCfg();$('cStatus').textContent=apiReady()?'Salvo ✓ API ativa.':'Salvo ✓ (funcionando só no modo local).'};
 $('cClear').onclick=()=>{$('cKey').value='';readCfg();$('cStatus').textContent='Chave apagada.'};
-$('cTest').onclick=async()=>{
-  readCfg();if(!apiReady()){$('cStatus').textContent='Preencha URL, modelo e chave.';return}
-  $('cStatus').textContent='Testando…';
-  try{const r=await callAI([{role:'user',content:'Responda apenas: Ultron conectado.'}],'Você é um teste de conexão.');$('cStatus').textContent='✅ Funcionou: '+r.slice(0,120)}
-  catch(e){$('cStatus').textContent='❌ '+e.message}
-};
+async function testProf(P,label){
+  readCfg();if(!profReady(P)){$('cStatus').textContent=`Preencha URL, modelo e chave da ${label}.`;return}
+  $('cStatus').textContent=`Testando ${label}…`;
+  try{const r=await callWith(P,[{role:'user',content:'Responda apenas: Ultron conectado.'}],'Você é um teste de conexão.');$('cStatus').textContent=`✅ ${label} (${pname(P)}) funcionou: `+r.slice(0,100)}
+  catch(e){$('cStatus').textContent=`❌ ${label}: `+e.message}
+}
+$('cTest').onclick=()=>testProf(MAIN(),'IA principal');
+$('aTest').onclick=()=>{readCfg();testProf(C.alt,'segunda IA')};
+$('aClear').onclick=()=>{['aBase','aModel','aKey'].forEach(i=>$(i).value='');$('aPreset').value='none';readCfg();$('cStatus').textContent='Segunda IA removida.'};
 
 /* ===================== CHAMADA UNIVERSAL DE IA ===================== */
 // msgs: [{role:'user'|'assistant', content:string, image?:dataURL}]
+let lastVia='';
+// Roteador: escolhe a IA certa (texto x imagem) e, se uma falhar (limite, fora do ar), tenta a outra
 async function callAI(msgs,system){
-  const f=C.format;let url,headers={'Content-Type':'application/json'},body,pick;
+  const hasImg=msgs.some(m=>m.image||(m.images&&m.images.length));
+  const main=profReady(MAIN())?MAIN():null,alt=profReady(C.alt)?C.alt:null;
+  let order=[main,alt].filter(Boolean);
+  if(hasImg&&C.vision==='alt'&&alt)order=[alt,main].filter(Boolean);
+  if(!order.length)throw new Error('Nenhuma IA configurada.');
+  let err=null;
+  for(let i=0;i<order.length;i++){
+    try{const out=await callWith(order[i],msgs,system);lastVia=pname(order[i])+(i>0?` (reserva — ${pname(order[0])} indisponível)`:'');return out}
+    catch(e){err=e;if(i<order.length-1)toast(`${pname(order[i])} falhou (${e.message.slice(0,60)}). Tentando ${pname(order[i+1])}…`,4000)}
+  }
+  throw err;
+}
+async function callWith(P,msgs,system){
+  const f=P.format;let url,headers={'Content-Type':'application/json'},body,pick;
   const b64=d=>d.split(',')[1], mime=d=>d.slice(5,d.indexOf(';')), imgs=m=>m.images||(m.image?[m.image]:[]);
   if(f==='anthropic'){
-    url=C.base+'/v1/messages';
-    Object.assign(headers,{'x-api-key':C.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
-    body={model:C.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:imgs(m).length?[...imgs(m).map(i=>({type:'image',source:{type:'base64',media_type:mime(i),data:b64(i)}})),{type:'text',text:m.content}]:m.content}))};
+    url=P.base+'/v1/messages';
+    Object.assign(headers,{'x-api-key':P.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
+    body={model:P.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:imgs(m).length?[...imgs(m).map(i=>({type:'image',source:{type:'base64',media_type:mime(i),data:b64(i)}})),{type:'text',text:m.content}]:m.content}))};
     pick=j=>(j.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
   }else if(f==='gemini'){
-    url=`${C.base}/models/${encodeURIComponent(C.model)}:generateContent?key=${encodeURIComponent(C.key)}`;
+    url=`${P.base}/models/${encodeURIComponent(P.model)}:generateContent?key=${encodeURIComponent(P.key)}`;
     body={systemInstruction:{parts:[{text:system}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[...imgs(m).map(i=>({inline_data:{mime_type:mime(i),data:b64(i)}})),{text:m.content}]}))};
     pick=j=>(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
   }else{
-    url=C.base+'/chat/completions';
-    if(C.key)headers.Authorization='Bearer '+C.key;
-    body={model:C.model,messages:[{role:'system',content:system},...msgs.map(m=>({role:m.role,content:imgs(m).length?[{type:'text',text:m.content},...imgs(m).map(i=>({type:'image_url',image_url:{url:i}}))]:m.content}))]};
+    url=P.base+'/chat/completions';
+    if(P.key)headers.Authorization='Bearer '+P.key;
+    body={model:P.model,messages:[{role:'system',content:system},...msgs.map(m=>({role:m.role,content:imgs(m).length?[{type:'text',text:m.content},...imgs(m).map(i=>({type:'image_url',image_url:{url:i}}))]:m.content}))]};
     pick=j=>j.choices?.[0]?.message?.content||'';
   }
   let res;
@@ -618,7 +667,7 @@ function add(text,who,meta){
     }
   }
   else{
-    if(meta?.src){const s=document.createElement('div');s.className='src';s.textContent=meta.src==='ai'?'🌐 via '+(PRESETS[C.preset]?.n.split(' (')[0]||'IA'):'💾 memória local';d.append(s)}
+    if(meta?.src){const s=document.createElement('div');s.className='src';s.textContent=meta.src==='ai'?'🌐 via '+(lastVia||'IA'):'💾 memória local';d.append(s)}
     renderRich(d,text);
     if('speechSynthesis'in window){const sp=document.createElement('button');sp.textContent='🔊';sp.title='Ouvir';sp.style.cssText='padding:2px 8px;font-size:12px;margin-top:6px';sp.onclick=()=>speak(text,true);d.append(sp)}
     if(meta&&(meta.fact||meta.src==='ai')){
