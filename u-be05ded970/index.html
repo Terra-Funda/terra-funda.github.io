@@ -257,12 +257,12 @@
             <option value="alt">A segunda IA (recomendado se ela for o Gemini)</option>
             <option value="main">A principal</option>
           </select></label>
-        <div class="row wrap"><button id="aTest">🔌 Testar segunda IA</button><button id="aClear">Remover segunda IA</button></div>
+        <div class="row wrap"><button id="aTest">🔌 Testar segunda IA</button><button id="aModels">📋 Ver modelos</button><button id="aClear">Remover segunda IA</button></div>
       </div>
       <label class="f">Personalidade / instruções extras (opcional)
         <textarea id="cPersona" placeholder="Ex.: seja mais formal; sempre use Python; responda curto…"></textarea></label>
-      <div class="row wrap"><button class="pri" id="cSave">💾 Salvar</button><button id="cTest">🔌 Testar conexão</button><button id="cClear">Apagar chave</button></div>
-      <div class="mut" id="cStatus"></div>
+      <div class="row wrap"><button class="pri" id="cSave">💾 Salvar</button><button id="cTest">🔌 Testar conexão</button><button id="cModels">📋 Ver modelos</button><button id="cClear">Apagar chave</button></div>
+      <div class="mut" id="cStatus"></div><div id="cModelList" class="row wrap" style="gap:6px"></div>
       <div class="mut">🔒 A chave fica só neste navegador e é enviada apenas ao provedor escolhido. Não compartilhe este navegador/arquivo de exportação com ela. Os nomes de modelos mudam com o tempo: confira o nome atual no site do provedor.</div>
     </div>
   </section>
@@ -390,6 +390,30 @@ async function testProf(P,label){
   catch(e){$('cStatus').textContent=`❌ ${label}: `+e.message}
 }
 $('cTest').onclick=()=>testProf(MAIN(),'IA principal');
+async function listModels(P){
+  let url,headers={},pick;
+  if(P.format==='gemini'){url=P.base+'/models?pageSize=200';headers['x-goog-api-key']=P.key;pick=j=>(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace(/^models\//,''))}
+  else if(P.format==='anthropic'){url=P.base+'/v1/models';Object.assign(headers,{'x-api-key':P.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});pick=j=>(j.data||[]).map(m=>m.id)}
+  else{url=P.base+'/models';if(P.key)headers.Authorization='Bearer '+P.key;pick=j=>(j.data||[]).map(m=>m.id)}
+  let res;try{res=await fetch(url,{headers})}catch(e){throw new Error(`não consegui falar com ${new URL(url).host}. Confira a URL base e a chave.`)}
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(`erro ${res.status}${res.status===401||res.status===403?' (chave inválida)':''}: ${j.error?.message||''}`);
+  return pick(j).filter(id=>!/embed|tts|whisper|audio|image|veo|imagen|guard|aqa|live|native/i.test(id)).sort();
+}
+async function showModels(which){
+  readCfg();const P=which==='main'?MAIN():{...(C.alt||{})};const box=$('cModelList');box.innerHTML='';
+  if(!P.base||!P.key&&!/localhost/.test(P.base)){$('cStatus').textContent='Preencha a URL base e a chave primeiro.';return}
+  $('cStatus').textContent='Buscando modelos…';
+  try{
+    const ids=await listModels(P);
+    if(!ids.length){$('cStatus').textContent='Nenhum modelo de texto encontrado para esta chave.';return}
+    $('cStatus').textContent=`Toque em um modelo para usar na ${which==='main'?'IA principal':'segunda IA'}:`;
+    ids.slice(0,40).forEach(id=>{const b=document.createElement('button');b.textContent=id;b.style.cssText='padding:4px 10px;font-size:12px;border-radius:99px';
+      b.onclick=()=>{$(which==='main'?'cModel':'aModel').value=id;readCfg();box.innerHTML='';$('cStatus').textContent=`Modelo "${id}" selecionado e salvo. Toque em Testar.`};box.append(b)});
+  }catch(e){$('cStatus').textContent='❌ '+e.message}
+}
+$('cModels').onclick=()=>showModels('main');
+$('aModels').onclick=()=>showModels('alt');
 $('aTest').onclick=()=>{readCfg();testProf(C.alt,'segunda IA')};
 $('aClear').onclick=()=>{['aBase','aModel','aKey'].forEach(i=>$(i).value='');$('aPreset').value='none';readCfg();$('cStatus').textContent='Segunda IA removida.'};
 
@@ -410,7 +434,13 @@ async function callAI(msgs,system){
   }
   throw err;
 }
+function checkProf(P){
+  if(/\s/.test(P.model)||/api.?key|chave/i.test(P.model))throw new Error(`o campo Modelo está com "${P.model}". Ali vai o NOME DO MODELO (ex.: ${P.format==='gemini'?'gemini-2.5-flash':'openai/gpt-oss-120b'}), não o nome da chave.`);
+  if(!/^https?:\/\//.test(P.base))throw new Error('a URL base precisa começar com https://');
+  if(P.format==='gemini'&&!/generativelanguage\.googleapis\.com\/v1(beta)?$/.test(P.base))throw new Error('para o Gemini, a URL base deve ser https://generativelanguage.googleapis.com/v1beta');
+}
 async function callWith(P,msgs,system){
+  checkProf(P);
   const f=P.format;let url,headers={'Content-Type':'application/json'},body,pick;
   const b64=d=>d.split(',')[1], mime=d=>d.slice(5,d.indexOf(';')), imgs=m=>m.images||(m.image?[m.image]:[]);
   if(f==='anthropic'){
@@ -419,7 +449,8 @@ async function callWith(P,msgs,system){
     body={model:P.model,max_tokens:4096,system,messages:msgs.map(m=>({role:m.role,content:imgs(m).length?[...imgs(m).map(i=>({type:'image',source:{type:'base64',media_type:mime(i),data:b64(i)}})),{type:'text',text:m.content}]:m.content}))};
     pick=j=>(j.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');
   }else if(f==='gemini'){
-    url=`${P.base}/models/${encodeURIComponent(P.model)}:generateContent?key=${encodeURIComponent(P.key)}`;
+    url=`${P.base}/models/${encodeURIComponent(P.model.replace(/^models\//,''))}:generateContent`;
+    headers['x-goog-api-key']=P.key;
     body={systemInstruction:{parts:[{text:system}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[...imgs(m).map(i=>({inline_data:{mime_type:mime(i),data:b64(i)}})),{text:m.content}]}))};
     pick=j=>(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
   }else{
@@ -430,9 +461,13 @@ async function callWith(P,msgs,system){
   }
   let res;
   try{res=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)})}
-  catch(e){throw new Error('Sem conexão com a API (internet, URL ou bloqueio CORS).')}
+  catch(e){throw new Error(navigator.onLine===false?'sem internet.':`não consegui falar com ${new URL(url).host}. Confira a URL base, o modelo e a chave (um modelo inexistente também causa este erro).`)}
   const j=await res.json().catch(()=>({}));
-  if(!res.ok)throw new Error(`Erro ${res.status}: `+(j.error?.message||j.message||JSON.stringify(j).slice(0,200)));
+  if(!res.ok){
+    const m=j.error?.message||j.message||JSON.stringify(j).slice(0,200);
+    const hint={400:' (pedido inválido: confira o modelo)',401:' (chave inválida ou apagada)',403:' (chave sem permissão para este modelo)',404:' (modelo não encontrado: confira o nome)',429:' (limite de uso atingido: aguarde ou use a outra IA)'}[res.status]||'';
+    throw new Error(`erro ${res.status}${hint}: ${m}`);
+  }
   const out=pick(j);if(!out)throw new Error('A API respondeu vazio.');
   return out.trim();
 }
