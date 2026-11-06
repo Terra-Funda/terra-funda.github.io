@@ -99,6 +99,7 @@
       <button id="testVoice" style="padding:3px 9px;font-size:12px">🔊 Testar voz</button>
       <button id="clearChat" style="padding:3px 9px;font-size:12px">Limpar conversa</button>
     </div>
+    <div id="chips" class="row wrap" style="gap:6px"></div>
     <div class="row">
       <button class="mic" id="micBtn" title="Falar">🎤</button>
       <button id="attachBtn" title="Enviar arquivo para a memória">📎</button>
@@ -395,6 +396,7 @@ Tarefas: quando pedirem código, entregue o código completo num bloco \`\`\`lin
 Data/hora atual: ${new Date().toLocaleString('pt-BR')}.
 Usuário atual: ${uname()} (${isOwner()?'seu dono e criador':'pessoa autorizada pelo dono'}). Só converse com ele(a).
 ${C.persona?'Instruções do usuário: '+C.persona:''}
+${styleContext()}
 Coisas que o usuário te ensinou (use se for relevante; elas têm prioridade sobre seu conhecimento):
 ${rel||'(nada ainda)'}
 ${docs?'Trechos de arquivos e textos que você leu (sua memória). Use-os para responder e cite o nome do arquivo:\n'+docs:''}`;
@@ -445,6 +447,7 @@ function localThink(t){
   let m=t.match(/^aprend[ae]\s*:?\s*(.+?)\s*[|=]\s*(.+)$/i);
   if(m){learn(m[1],m[2]);return{a:`Memorizado: "${m[1]}" → "${m[2]}"`,kind:'cmd'}}
   m=t.match(/^(?:esque[cç]a|apague)\s*:?\s*(.+)$/i);
+  if(m&&forgetStyle(m[1]))return{a:`Esqueci "${m[1]}".`,kind:'cmd'};
   if(m){const r=bestFact(m[1]);if(r.f&&r.s>0.5){M.facts=M.facts.filter(x=>x!==r.f);save();return{a:`Esqueci "${r.f.q}".`,kind:'cmd'}}return{a:'Não encontrei isso na minha memória.',kind:'cmd'}}
   m=n.match(/^(?:meu nome e|me chamo|pode me chamar de)\s+(.+)$/);
   if(m){M.nicks[ME.name]=m[1].replace(/\b\w/g,c=>c.toUpperCase());save();return{a:`Prazer, ${uname()}. Vou lembrar.`,kind:'cmd'}}
@@ -452,6 +455,7 @@ function localThink(t){
   if(/quem (e )?(o )?(seu )?dono|quem (pode|tem acesso)/.test(n))return{a:'Respondo apenas ao meu dono e a quem ele autorizar.',kind:'cmd'};
   if(/^(que horas|quantas horas)/.test(n))return{a:'Agora são '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.',kind:'cmd'};
   if(/^(que dia|qual (a )?data)/.test(n))return{a:'Hoje é '+new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.',kind:'cmd'};
+  const st=styleCommand(t,n);if(st)return st;
   if(/o que (voce )?(sabe|aprendeu)|quanto (voce )?sabe/.test(n))return{a:`Tenho ${M.facts.length} respostas aprendidas e ${M.docs.length} textos lidos na memória.`+(apiReady()?' E estou conectado a uma IA para o resto.':''),kind:'cmd'};
   if(/o que (voce )?leu|ultimo texto|ultima leitura/.test(n))return{a:M.docs.length?`A última coisa que li foi "${M.docs.at(-1).name||'um texto'}":\n`+M.docs.at(-1).text.slice(0,600):'Ainda não li nada. Use a aba Visão.',kind:'cmd'};
   const expr=t.replace(/^(quanto (é|e|da|dá)|calcule|calcula)\s*/i,'').replace(/\?$/,'').replace(/vezes/gi,'*').replace(/mais/gi,'+').replace(/menos/gi,'-').replace(/dividido por/gi,'/').replace(/(\d)\s*x\s*(\d)/gi,'$1*$2').replace(/,/g,'.');
@@ -476,18 +480,21 @@ function learn(q,a){
 let hist=[];
 function remember(role,content){hist.push({role,content});if(hist.length>16)hist=hist.slice(-16)}
 const SEE=/(o que (voce )?(esta )?(ve|vendo|enxerga)|olha isso|olhe isso|descreva (a|o que)|o que e isso)/;
-async function ask(text){
+async function ask(text,opt={}){
   text=text.trim();if(!text||!DK||!ME)return;bump();
-  add(text,'me');M.log.push({t:Date.now(),q:text});if(M.log.length>500)M.log.shift();
+  if(!opt.noBubble)add(text,'me',opt);M.log.push({t:Date.now(),q:text,u:ME.name});if(M.log.length>1500)M.log.shift();
   const wasTeaching=!!pending;
-  const isTask=TASK.test(text);
+  const meaning=wasTeaching?text:expandSlang(text);
+  const isTask=TASK.test(meaning);
   let L=null;
   // 1) memória local (exceto quando é tarefa ou modo "sempre IA")
   if(wasTeaching||!(apiReady()&&(C.mode==='api'||isTask))){
-    L=localThink(text);
+    L=localThink(meaning);
     const confident=L.kind==='cmd'||L.kind==='fact'||L.kind==='doc';
     if(confident||!apiReady()){
       if(L.kind==='unknown')pending=text;
+      if(L.kind==='fact'&&M.catch?.length&&Math.random()<0.25)L.a+=' '+M.catch[Math.floor(Math.random()*M.catch.length)];
+      renderChips();
       return reply(L.a,'local',L.fact,text);
     }
   }
@@ -496,11 +503,11 @@ async function ask(text){
   const thinking=add('Processando…','bot');eye.classList.add('busy','ai');
   try{
     const out=await callAI([...hist,{role:'user',content:text,image:img}],systemPrompt(text));
-    thinking.remove();remember('user',text);
+    thinking.remove();remember('user',text);renderChips();
     reply(out,'ai',null,text);
   }catch(e){
     thinking.remove();
-    L=L||localThink(text);if(L.kind==='unknown')pending=text;
+    L=L||localThink(meaning);if(L.kind==='unknown')pending=text;
     reply(L.a+`\n\n⚠️ IA indisponível: ${e.message}`,'local',L.fact,text);
   }finally{eye.classList.remove('busy','ai')}
 }
@@ -538,7 +545,14 @@ function renderRich(el,text){
 }
 function add(text,who,meta){
   const d=document.createElement('div');d.className='msg '+who;
-  if(who==='me'){d.textContent=text}
+  if(who==='me'){
+    d.textContent=text;
+    if(meta?.voice){
+      const ed=document.createElement('button');ed.textContent='✏️ corrigir';ed.title='O microfone entendeu errado? Corrija e eu aprendo.';
+      ed.style.cssText='display:block;margin-top:6px;padding:2px 8px;font-size:12px;background:#0f2238';
+      ed.onclick=()=>editVoice(d,text);d.append(ed);
+    }
+  }
   else{
     if(meta?.src){const s=document.createElement('div');s.className='src';s.textContent=meta.src==='ai'?'🌐 via '+(PRESETS[C.preset]?.n.split(' (')[0]||'IA'):'💾 memória local';d.append(s)}
     renderRich(d,text);
@@ -784,8 +798,9 @@ if(SR){
   rec=new SR();rec.lang='pt-BR';rec.interimResults=false;rec.continuous=false;
   rec.onresult=e=>{
     let t=e.results[e.results.length-1][0].transcript.trim();
-    if(optWake.checked){const m=t.match(/ultron[,\s]*(.*)/i);if(!m)return;t=m[1]||'oi'}
-    ask(t);
+    if(optWake.checked){const m=applyFixes(t).match(/ultron[,\s]*(.*)/i);if(!m)return;t=m[1]||'oi'}
+    const heard=t;t=applyFixes(t);
+    ask(t,{voice:true,heard});
   };
   rec.onstart=()=>{listening=true;micBtn.classList.add('rec')};
   rec.onend=()=>{listening=false;micBtn.classList.remove('rec');if(wantListen&&optWake.checked&&!speechSynthesis.speaking)setTimeout(startRec,300)};
@@ -1000,10 +1015,117 @@ function docContext(q){
   return parts.join('\n\n');
 }
 
+
+/* ===================== JEITO DE FALAR: sotaque, gírias, preferências, bordões, hábitos ===================== */
+function U(){M.people=M.people||{};const k=ME?.name||'?';return M.people[k]||(M.people[k]={fixes:[],slang:[],prefs:[]})}
+const escRe=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const wordRe=x=>new RegExp('(^|[^\\p{L}\\p{N}])'+escRe(x)+'(?=$|[^\\p{L}\\p{N}])','giu');
+function applyList(str,list){list.forEach(f=>{str=str.replace(wordRe(f.from),(m,pre)=>pre+f.to)});return str}
+const applyFixes=str=>ME?applyList(str,U().fixes):str;
+const expandSlang=str=>ME?applyList(str,U().slang):str;
+function addPair(list,from,to){from=from.trim();to=to.trim();if(!from||!to)return;const ex=list.find(x=>norm(x.from)===norm(from));if(ex)ex.to=to;else list.push({from,to});save()}
+function learnFixes(a,b){
+  const A=a.split(/\s+/),B=b.split(/\s+/);let i=0,j=0;
+  while(i<A.length&&i<B.length&&norm(A[i])===norm(B[i]))i++;
+  while(j<A.length-i&&j<B.length-i&&norm(A[A.length-1-j])===norm(B[B.length-1-j]))j++;
+  const from=A.slice(i,A.length-j).join(' '),to=B.slice(i,B.length-j).join(' ');
+  if(!from||!to||from.split(' ').length>4)return null;
+  addPair(U().fixes,from,to);return{from,to};
+}
+function editVoice(d,orig){
+  d.innerHTML='';const inpE=document.createElement('input');inpE.value=orig;inpE.style.cssText='width:100%;margin-bottom:6px';
+  const ok=document.createElement('button');ok.textContent='✔ Salvar';ok.style.cssText='padding:3px 9px;font-size:12px';
+  const no=document.createElement('button');no.textContent='Cancelar';no.style.cssText='padding:3px 9px;font-size:12px;margin-left:6px';
+  d.append(inpE,ok,no);inpE.focus();
+  no.onclick=()=>{d.textContent=orig};
+  const go=()=>{
+    const nt=inpE.value.trim();if(!nt||nt===orig){d.textContent=orig;return}
+    d.textContent=nt;if(pending===orig)pending=null;
+    const l=learnFixes(orig,nt);
+    add(l?`✏️ Aprendi: quando eu ouvir "${l.from}", você quis dizer "${l.to}". Da próxima vez já entendo.`:'✏️ Corrigido. (A diferença era grande demais para eu aprender como sotaque, mas respondi a frase certa.)','bot');
+    ask(nt,{noBubble:true});
+  };
+  ok.onclick=go;inpE.onkeydown=e=>{if(e.key==='Enter')go()};
+}
+function styleCommand(t,n){
+  let m;
+  if((m=t.match(/^(?:corrij[ae]|corrige)\s*:?\s*["“']?(.+?)["”']?\s*(?:\||=|->|→|\bpara\b)\s*["“']?(.+?)["”']?\.?$/i))){addPair(U().fixes,m[1],m[2]);return{a:`Entendido: quando eu ouvir "${m[1]}", vou entender "${m[2]}".`,kind:'cmd'}}
+  if((m=t.match(/^(?:quando|se)\s+eu\s+(?:disser|falar|digo|falo|escrever)\s+["“']?(.+?)["”']?\s*,?\s*(?:é|e|significa|quer dizer|eu quero dizer|estou dizendo|eu to dizendo)\s+["“']?(.+?)["”']?\.?$/i))||(m=t.match(/^g[ií]ria\s*:?\s*(.+?)\s*[=|]\s*(.+)$/i))){addPair(U().slang,m[1],m[2]);return{a:`Anotado: "${m[1]}" = "${m[2]}". Pode falar do seu jeito.`,kind:'cmd'}}
+  if((m=t.match(/^(?:aprenda (?:o|um|esse) |novo |adicione (?:o|um) )?bord[aã]o\s*:?\s*(.+)$/i))){M.catch.push(m[1].trim());save();return{a:`Novo bordão aprendido: "${m[1].trim()}". Vou usar de vez em quando.`,kind:'cmd'}}
+  if(!/\?$/.test(t)&&((m=t.match(/^(?:eu\s+)?(?:lembre(?:-se)?\s+que|lembra\s+que|anote\s+que)\s+(.+)$/i))||/^(?:eu\s+)?(?:prefiro|gosto (?:de|que|quando)|n[aã]o gosto|odeio|detesto|quero que (?:voc[eê]|vc)|n[aã]o quero que|sempre|nunca)\b/i.test(t))){
+    const pref=(m?m[1]:t).trim().replace(/\.$/,'');const P=U().prefs;if(!P.some(x=>norm(x)===norm(pref)))P.push(pref);save();
+    return{a:`Anotado sobre você: "${pref}".`,kind:'cmd'};
+  }
+  if(/(minhas preferencias|o que (voce )?sabe sobre mim|meu jeito|minhas girias)/.test(n)){
+    const u=U(),L=[];
+    if(u.prefs.length)L.push('Sobre você:\n• '+u.prefs.join('\n• '));
+    if(u.slang.length)L.push('Suas gírias:\n• '+u.slang.map(x=>`${x.from} = ${x.to}`).join('\n• '));
+    if(u.fixes.length)L.push('Correções de sotaque:\n• '+u.fixes.map(x=>`${x.from} → ${x.to}`).join('\n• '));
+    return{a:L.length?L.join('\n\n'):'Ainda não sei nada do seu jeito. Diga coisas como "prefiro respostas curtas" ou "quando eu disser bora, é vamos".',kind:'cmd'};
+  }
+  if(/(meus habitos|o que eu (mais )?pergunto|minhas manias)/.test(n)){
+    const h=habits().slice(0,5);
+    return{a:h.length?'Seus hábitos:\n'+h.map(x=>`• "${x.text}" — ${x.n}x${x.days>1?`, em ${x.days} dias`:''}, geralmente por volta das ${x.hour}h`).join('\n'):'Ainda estou observando. Converse mais comigo e eu aprendo seus hábitos.',kind:'cmd'};
+  }
+  if(/(seus bordoes|quais (sao )?(os )?(seus )?bordoes)/.test(n))return{a:M.catch.length?'Meus bordões:\n• '+M.catch.join('\n• '):'Ainda não tenho bordões. Ensine: "bordão: …"',kind:'cmd'};
+  return null;
+}
+function forgetStyle(x){
+  const u=U(),nx=norm(x).replace(/^(a |o )?(preferencia|giria|correcao|bordao)\s*/,'');
+  const hit=(s)=>{const ns=norm(s);return ns===nx||ns.includes(nx)&&nx.length>3};
+  for(const L of [u.slang,u.fixes]){const i=L.findIndex(p=>hit(p.from));if(i>=0){L.splice(i,1);save();return true}}
+  let i=u.prefs.findIndex(hit);if(i>=0){u.prefs.splice(i,1);save();return true}
+  i=M.catch.findIndex(hit);if(i>=0){M.catch.splice(i,1);save();return true}
+  return false;
+}
+function styleContext(){
+  if(!ME)return'';const u=U(),L=[];
+  if(u.prefs.length)L.push(`O que você sabe sobre ${uname()} e as preferências dele(a) (respeite sempre):\n- `+u.prefs.join('\n- '));
+  if(u.slang.length)L.push('Gírias/expressões que ele(a) usa:\n- '+u.slang.map(x=>`"${x.from}" = "${x.to}"`).join('\n- '));
+  const h=habits().slice(0,3);if(h.length)L.push('Assuntos frequentes dele(a): '+h.map(x=>`"${x.text}"`).join(', ')+'.');
+  if(M.catch?.length)L.push('Seus bordões de personagem (use de vez em quando, com naturalidade, nunca em todas as respostas):\n- '+M.catch.join('\n- '));
+  return L.join('\n');
+}
+function habits(){
+  if(!ME)return[];const since=Date.now()-60*864e5,g={};
+  M.log.forEach(e=>{
+    if(e.u!==ME.name||e.t<since)return;const k=norm(e.q);if(k.length<2||/^(sim|nao|ok|pular)$/.test(k))return;
+    const x=g[k]||(g[k]={text:e.q,n:0,days:new Set(),hours:[],last:0});
+    x.n++;x.days.add(new Date(e.t).toDateString());x.hours.push(new Date(e.t).getHours());if(e.t>x.last){x.last=e.t;x.text=e.q}
+  });
+  return Object.entries(g).map(([k,x])=>{const hs=x.hours.sort((a,b)=>a-b);return{key:k,text:x.text,n:x.n,days:x.days.size,hour:hs[Math.floor(hs.length/2)],last:x.last}})
+    .filter(x=>x.n>=2).sort((a,b)=>b.n-a.n||b.last-a.last);
+}
+function renderChips(){
+  const c=$('chips');if(!c)return;c.innerHTML='';
+  habits().slice(0,3).forEach(h=>{const b=document.createElement('button');b.textContent='⚡ '+(h.text.length>28?h.text.slice(0,28)+'…':h.text);
+    b.title='Você pergunta isso com frequência';b.style.cssText='padding:4px 10px;font-size:12px;border-radius:99px';b.onclick=()=>ask(h.text);c.append(b)});
+}
+function proactiveHabit(){
+  const now=new Date(),today=now.toDateString(),hr=now.getHours();
+  const h=habits().find(x=>x.n>=3&&x.days>=3&&Math.min(Math.abs(x.hour-hr),24-Math.abs(x.hour-hr))<=1&&new Date(x.last).toDateString()!==today);
+  if(!h)return;
+  const r=localThink(expandSlang(h.text));
+  add(`🧠 Você costuma perguntar "${h.text}" por volta deste horário.`,'bot');
+  if(r.kind==='cmd'||r.kind==='fact')reply(r.a,'local',r.fact,h.text);
+}
+function styleItems(kb){
+  if(!ME)return;const u=U();
+  const rows=[...u.fixes.map(x=>({ic:'🗣',t:`${x.from} → ${x.to}`,sub:'correção de sotaque',del:()=>u.fixes.splice(u.fixes.indexOf(x),1)})),
+    ...u.slang.map(x=>({ic:'💬',t:`${x.from} = ${x.to}`,sub:'gíria',del:()=>u.slang.splice(u.slang.indexOf(x),1)})),
+    ...u.prefs.map(x=>({ic:'⭐',t:x,sub:'sobre você',del:()=>u.prefs.splice(u.prefs.indexOf(x),1)})),
+    ...M.catch.map(x=>({ic:'🎭',t:x,sub:'bordão do Ultron',del:()=>M.catch.splice(M.catch.indexOf(x),1)}))];
+  rows.forEach(r=>{
+    const it=document.createElement('div');it.className='it';
+    const d=document.createElement('div');d.innerHTML='<div class="q"></div><div class="mut"></div>';d.children[0].textContent=r.ic+' '+r.t;d.children[1].textContent=r.sub;
+    const x=document.createElement('button');x.textContent='✕';x.onclick=()=>{r.del();save()};it.append(d,x);kb.append(it);
+  });
+}
+
 /* ===================== MEMÓRIA UI ===================== */
 function renderStats(){$('stats').textContent=`🧠 ${M.facts.length} respostas · 📄 ${M.docs.length} textos`}
 function renderKB(){
-  const kb=$('kb');kb.innerHTML='';
+  const kb=$('kb');kb.innerHTML='';styleItems(kb);
   [...M.facts].sort((a,b)=>b.uses-a.uses).forEach(f=>{
     const it=document.createElement('div');it.className='it';
     const d=document.createElement('div');d.innerHTML='<div class="q"></div><div></div><div class="mut"></div>';
@@ -1079,11 +1201,13 @@ function bump(){clearTimeout(idleT);const m=V?.lockMin??10;if(DK&&m>0)idleT=setT
 ['click','keydown','touchstart','scroll'].forEach(ev=>addEventListener(ev,bump,{passive:true}));
 
 function startApp(){
+  M.people=M.people||{};M.catch=M.catch||[];
   document.body.classList.remove('locked');$('lock').remove();
   $('who').textContent=(isOwner()?'👑 ':'👤 ')+uname();
   fillCfg();fillTTS();renderStats();renderKB();renderUsers();bump();
   if(!isOwner()){$('cKey').value='';}
   add(`Bem-vindo, ${uname()}. `+'Ultron online. Fale pelo 🎤, digite, ou me mostre algo na aba Visão. Funciono sozinho e aprendo com você'+(apiReady()?' — e estou conectado a uma IA para tarefas como códigos e planilhas.':'. Para tarefas como códigos e planilhas, conecte uma API na aba ⚙️.'),'bot');
+  renderChips();setTimeout(proactiveHabit,1200);
 }
 
 /* ===================== TELA DE BLOQUEIO ===================== */
